@@ -26,14 +26,14 @@ type ordererdriveClient struct {
         chainID string
 }
 type broadcastClient struct {
-	client  ab.AtomicBroadcast_BroadcastClient
-	chainID string
+	      client  ab.AtomicBroadcast_BroadcastClient
+	      chainID string
 }
 func newOrdererdriveClient(client ab.AtomicBroadcast_DeliverClient, chainID string) *ordererdriveClient {
         return &ordererdriveClient{client: client, chainID: chainID}
 }
 func newBroadcastClient(client ab.AtomicBroadcast_BroadcastClient, chainID string) *broadcastClient {
-	return &broadcastClient{client: client, chainID: chainID}
+	      return &broadcastClient{client: client, chainID: chainID}
 }
 
 func seekHelper(chainID string, start *ab.SeekPosition) *cb.Envelope {
@@ -89,30 +89,30 @@ func (r *ordererdriveClient) readUntilClose(consumerNumber int) {
 }
 
 func (b *broadcastClient) broadcast(transaction []byte) error {
-	payload, err := proto.Marshal(&cb.Payload{
-		Header: &cb.Header{
-			ChainHeader: &cb.ChainHeader{
-				ChainID: b.chainID,
-			},
-			SignatureHeader: &cb.SignatureHeader{},
-		},
-		Data: transaction,
-	})
-	if err != nil {
-		panic(err)
-	}
-	return b.client.Send(&cb.Envelope{Payload: payload})
+	     payload, err := proto.Marshal(&cb.Payload{
+		      Header: &cb.Header{
+			       ChainHeader: &cb.ChainHeader{
+				     ChainID: b.chainID,
+			       },
+			       SignatureHeader: &cb.SignatureHeader{},
+		      },
+		      Data: transaction,
+	     })
+	     if err != nil {
+		      panic(err)
+	     }
+	     return b.client.Send(&cb.Envelope{Payload: payload})
 }
 
 func (b *broadcastClient) getAck() error {
-	msg, err := b.client.Recv()
-	if err != nil {
-		return err
-	}
-	if msg.Status != cb.Status_SUCCESS {
-		return fmt.Errorf("Got unexpected status: %v", msg.Status)
-	}
-	return nil
+	     msg, err := b.client.Recv()
+       if err != nil {
+		      return err
+	     }
+	     if msg.Status != cb.Status_SUCCESS {
+		      return fmt.Errorf("Got unexpected status: %v", msg.Status)
+	     }
+	     return nil
 }
 
 func startConsumer(serverAddr string, chainID string, ordererNumber int, consumerNumber int) {
@@ -159,7 +159,7 @@ func launchnetwork() {
 	executeCmdAndDisplay("docker ps -a")
 }
 
-func startProducer(broadcastAddr string, channelID string, ordererIndex int, channelIndex int, numTx int64) {
+func startProducer(broadcastAddr string, channelID string, ordererIndex int, channelIndex int, numTxToSend int64) {
      //TODO - Surya
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         defer func() {
@@ -177,23 +177,23 @@ func startProducer(broadcastAddr string, channelID string, ordererIndex int, cha
 
      //return newBroadcastClient(client, chainID)
         b := newBroadcastClient(client, chainID)
-        var counter uint64
-        counter = 0
-        for i := uint64(0); i < messages; i++ {
+        var counter int64
+        totalNumTxSent = 0
+        for i := int64(0); i < numTxToSend; i++ {
            b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
            err = b.getAck()
            if err == nil {
-             counter ++
+             totalNumTxSent ++
            }
         }
         if err != nil {
            fmt.Printf("\nError: %v\n", err)
         }
-        if messages - counter == 0 {
-           fmt.Println("Hurray all messages are delivered %d", counter);
+        if numTxToSend - counter == 0 {
+           fmt.Println("Total number of messages delivered %d", totalNumTxSent);
         } else {
-           fmt.Println("Total Successful messages delivered %d", counter);
-           fmt.Println("Messages  that are failed to deliver %d", (messages - counter));
+           fmt.Println("Total Successful messages delivered %d", totalNumTxSent);
+           fmt.Println("Messages  that are failed to deliver %d", (numTxToSend - totalNumTxSent));
         }
         producers_wg.Done()
 }
