@@ -67,9 +67,7 @@ func (r *ordererdriveClient) seek(blockNumber uint64) error {
         return r.client.Send(seekHelper(r.chainID, &ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: blockNumber}}}))
 }
 
-func (r *ordererdriveClient) readUntilClose(consumerNumber int) {
-        var totaltx int64
-        totaltx = 0
+func (r *ordererdriveClient) readUntilClose(ordererNumber int, consumerNumber int) {
         for {
                 msg, err := r.client.Recv()
                 if err != nil {
@@ -82,8 +80,9 @@ func (r *ordererdriveClient) readUntilClose(consumerNumber int) {
                         fmt.Println("Got status ", t)
                         return
                 case *ab.DeliverResponse_Block:
-                        txRecv[consumerNumber] += int64(len(t.Block.Data.Data))
-			                  fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", totaltx)
+                        txRecv[ordererNumber][consumerNumber] += int64(len(t.Block.Data.Data))
+                        blockRecv[ordererNumber][consumerNumber] = int64(t.Block.Header.Number)
+			                  fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererNumber][consumerNumber])
                 }
         }
 }
@@ -135,7 +134,7 @@ func startConsumer(serverAddr string, chainID string, ordererNumber int, consume
         } else {
                 fmt.Println("Received error starting new consumer; err:", err)
         }
-        s.readUntilClose(consumerNumber)
+        s.readUntilClose(ordererNumber, consumerNumber)
 }
 
 func executeCmd(cmd string) {
@@ -150,16 +149,24 @@ func executeCmdAndDisplay(cmd string) {
         executeCmd(cmd)
         fmt.Println("results of exec command: "+cmd+"\nstdout="+string(out))
 }
-
+func cleannetwork() {
+    cmd :="docker rm -f $(docker ps -aq)"
+    out, err := exec.Command("/bin/sh", "-c", cmd).Output()
+    if (err != nil) {
+      fmt.Println("Removed the Network")
+      fmt.Println(out)
+      log.Fatal(err)
+    }
+}
 func launchnetwork() {
         fmt.Println("Start orderer service, using docker-compose")
         executeCmd("docker-compose up -d")
         fmt.Println("After start orderer service, check containers after sleep 10 secs")
         time.Sleep(10 * time.Second)
-	executeCmdAndDisplay("docker ps -a")
+	      executeCmdAndDisplay("docker ps -a")
 }
 
-func startProducer(broadcastAddr string, channelID string, ordererIndex int, channelIndex int, numTxToSend int64) {
+func startProducer(serverAddr string, channelID string, ordererIndex int, channelIndex int, sendCount int64) {
      //TODO - Surya
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         defer func() {
@@ -177,25 +184,50 @@ func startProducer(broadcastAddr string, channelID string, ordererIndex int, cha
 
      //return newBroadcastClient(client, chainID)
         b := newBroadcastClient(client, chainID)
-        var counter int64
-        totalNumTxSent = 0
-        for i := int64(0); i < numTxToSend; i++ {
+        //var counter int64
+
+        for i := int64(0); i < sendCount; i++ {
            b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
            err = b.getAck()
            if err == nil {
-             totalNumTxSent ++
+             txSent [ordererIndex][channelIndex] ++
+           } else {
+             txSentFailures [ordererIndex][channelIndex] ++
            }
         }
         if err != nil {
            fmt.Printf("\nError: %v\n", err)
         }
-        if numTxToSend - counter == 0 {
-           fmt.Println("Total number of messages delivered %d", totalNumTxSent);
+        if sendCount - txSent [ordererIndex][channelIndex] == 0 {
+           fmt.Println("Total number of messages delivered %d", sendCount);
         } else {
-           fmt.Println("Total Successful messages delivered %d", totalNumTxSent);
-           fmt.Println("Messages  that are failed to deliver %d", (numTxToSend - totalNumTxSent));
+           fmt.Println("Total Successful messages delivered %d", txSent [ordererIndex][channelIndex]);
+           fmt.Println("Messages  that are failed to deliver %d", (sendCount - txSent [ordererIndex][channelIndex]));
         }
         producers_wg.Done()
+}
+
+func computeTotals() {
+  // computing totals for sending and receiving
+  var successCount int64 = 0;
+  var failureCount int64 = 0;
+  for i = 0; i < numOrdsInNtwk; i++ {
+    for j = 0; j < numChannels; j++ {
+      successCount += txSent [i][j];
+      failureCount += txSentFailures [i][j];
+    }
+    for k = 0; k < numConsumers; k++ {
+      totalTxRecv += totaltxRecv[i][k];
+      totalBlockRecv += blockRecv[i][k]
+    }
+  }
+  totalNumTxSent = successCount + numChannels;
+  totalNumTxSentFailures = failureCount;
+
+  fmt.Println("Total successCount %d", totalNumTxSent);
+  fmt.Println("Total failureCount %d", totalNumTxSentFailures);
+  fmt.Println("Total Received Count %d", totalTxRecv);
+  fmt.Println("Total received blocks %d", totalBlockRecv);
 }
 
 var producers_wg sync.WaitGroup
