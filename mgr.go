@@ -26,8 +26,8 @@ type ordererdriveClient struct {
         chainID string
 }
 type broadcastClient struct {
-	      client  ab.AtomicBroadcast_BroadcastClient
-	      chainID string
+	client  ab.AtomicBroadcast_BroadcastClient
+	chainID string
 }
 func newOrdererdriveClient(client ab.AtomicBroadcast_DeliverClient, chainID string) *ordererdriveClient {
         return &ordererdriveClient{client: client, chainID: chainID}
@@ -152,53 +152,51 @@ func executeCmdAndDisplay(cmd string) {
 }
 
 func launchnetwork() {
-                fmt.Println("Start orderer service, using docker-compose")
-                executeCmd("docker-compose up -d")
-                fmt.Println("After start orderer service, check containers after sleep 10 secs")
-                time.Sleep(10 * time.Second)
-		executeCmdAndDisplay("docker ps -a")
+        fmt.Println("Start orderer service, using docker-compose")
+        executeCmd("docker-compose up -d")
+        fmt.Println("After start orderer service, check containers after sleep 10 secs")
+        time.Sleep(10 * time.Second)
+	executeCmdAndDisplay("docker ps -a")
 }
 
 func startProducer(broadcastAddr string, channelID string, ordererIndex int, channelIndex int, numTx int64) {
      //TODO - Surya
-     conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
-     defer func() {
-       _ = conn.Close()
-     }()
-     if err != nil {
-       fmt.Println("Error connecting:", err)
-       return
-     }
-     client, err := ab.NewAtomicBroadcastClient(conn).Broadcast(context.TODO())
-     if err != nil {
-       fmt.Println("Error connecting:", err)
-       return
-     }
+        conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
+        defer func() {
+          _ = conn.Close()
+        }()
+        if err != nil {
+           fmt.Println("Error connecting:", err)
+           return
+        }
+        client, err := ab.NewAtomicBroadcastClient(conn).Broadcast(context.TODO())
+        if err != nil {
+           fmt.Println("Error connecting:", err)
+           return
+        }
 
      //return newBroadcastClient(client, chainID)
-     b := newBroadcastClient(client, chainID)
-     var counter uint64
-     counter = 0
-     for i := uint64(0); i < messages; i++ {
-       b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
-       err = b.getAck()
-     if err == nil {
-        counter ++
-     }
-     }
-     if err != nil {
-       fmt.Printf("\nError: %v\n", err)
-     }
-     if messages - counter == 0 {
-       fmt.Println("Hurray all messages are delivered %d", counter);
-     } else {
-       fmt.Println("Total Successful messages delivered %d", counter);
-       fmt.Println("Messages  that are failed to deliver %d", (messages - counter));
-     }
-     producers_wg.Done()
+        b := newBroadcastClient(client, chainID)
+        var counter uint64
+        counter = 0
+        for i := uint64(0); i < messages; i++ {
+           b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
+           err = b.getAck()
+           if err == nil {
+             counter ++
+           }
+        }
+        if err != nil {
+           fmt.Printf("\nError: %v\n", err)
+        }
+        if messages - counter == 0 {
+           fmt.Println("Hurray all messages are delivered %d", counter);
+        } else {
+           fmt.Println("Total Successful messages delivered %d", counter);
+           fmt.Println("Messages  that are failed to deliver %d", (messages - counter));
+        }
+        producers_wg.Done()
 }
-
-
 
 var producers_wg sync.WaitGroup
 var channelID string = provisional.TestChainID // default hardcoded channel for testing
