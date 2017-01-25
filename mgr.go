@@ -1,5 +1,9 @@
 package main
 
+// TODO - restructure as a package, change main() to be a function odt(), and then can call odt(with,parms) from testcases
+
+// TODO - restructure for junit output
+
 import (
         "flag"
         "fmt"
@@ -77,7 +81,7 @@ nt64                }
         }
 }
 
-func startConsumer(serverAddr string, chainID string, consumerId int) {
+func startConsumer(serverAddr string, chainID string, ordererNumber int, consumerNumber int) {
 
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         if err != nil {
@@ -97,20 +101,20 @@ func startConsumer(serverAddr string, chainID string, consumerId int) {
         } else {
                 fmt.Println("Received error starting new consumer; err:", err)
         }
-        s.umerIdeadUntilClose(consumerId)
+        s.readUntilClose(consumerNumber)
 }
 
-func executeCmd(cmd string, displayStdout bool) {
+func executeCmd(cmd string) {
         out, err := exec.Command("/bin/sh", "-c", cmd).Output()
         if (err != nil) {
-                fmt.Println("unsuccessful exec command: "+cmd+"\nstdout="+out+"\nstderr="+err)
+                fmt.Println("unsuccessful exec command: "+cmd+"\nstdout="+string(out)+"\nstderr="+string(err))
                 log.Fatal(err)
         }
 }
 
 func executeCmdAndDisplay(cmd string) {
         executeCmd(cmd)
-        fmt.Println("results of exec command: "+cmd+"\nstdout="+out)
+        fmt.Println("results of exec command: "+cmd+"\nstdout="+string(out))
 }
         
 func launchnetwork() {
@@ -121,64 +125,118 @@ func launchnetwork() {
 		executeCmdAndDisplay("docker ps -a")
 }
 
-func startProducer(broadcastAddr string, numTx int64) {
+func startProducer(broadcastAddr string, channelID string, ordererIndex int, channelIndex int, numTx int64) {
+     //TODO - Surya
 
-        
 
-        wg.Done()
+     producers_wg.Done()
 }
 
 
-var channelID string = provisional.TestChainID // default hardcoded channel for testing
-var channels []string = { channelID }  // later we can enhance code to read/join more channels...
-var numOrderers int = 1      // default; the testcase may override this with the number of orderers in the network
-var numKBrokers int = 1
 
+var producers_wg sync.WaitGroup
+var channelID string = provisional.TestChainID // default hardcoded channel for testing
+var channels []string = { channelID }   // ...later we can enhance code to read/join more channels...
+var numChannels int = len(channels)     // ...later we can enhance code to read/join more channels...
+var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
+var numOrdsToGetTx int = 1              // default; the testcase may override this with the number of orderers to recv TXs
+var ordererType string = "solo"         // default; the testcase may override this
+var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
+
+// numTxToSend is the total number of Transactions to send;
+// A fraction will be sent by each producer - one producer for each channel for each numOrdsToGetTx 
 var numTxToSend            int64 = 1    // default; the testcase may override this
-var numProducers           int   = 1    // default; the testcase may override this
-var txSent               []int64        // each producer will count the successfully sent Tx
-var txSentFailures       []int64        // each producer will count the send-failures Tx
+
+// Each producer sends TXs to one channel on one orderer, and increments its own counters for
+// the successfully sent Tx, and the send-failures (rejected/timeout).
+var txSent             [][]int64       // indexed dimensions: numOrdsToGetTx and numChannels
+var txSentFailures     [][]int64       // indexed dimensions: numOrdsToGetTx and numChannels
 var totalNumTxSent         int64 = 0
 var totalNumTxSentFailures int64 = 0
 
-var numConsumers     int   = 0
-var blockRecv      []int64        // each consumer will count the number of blocks successfully delivered (received)
-var txRecv         []int64        // each consumer will count the number of Tx successfully delivered (received)
-var totalBlockRecv   int64 = 0    // total for all consumers
-var totalTxRecv      int64 = 0    // total for all consumers
+// Each consumer receives blocks delivered on one channel from one orderer,
+// and must track its own counters for the received number of blocks and
+// received number of Tx.
+// We will create one consumer for each channel on one orderer, and 
+// a set of consumers (one for each channel) on ALL the orderers
+// (so we can check to ensure they all receive the same deliveries).
 
- //  txRecv[consumerNumber] += len( data )
+var numConsumers     int   = 1
+var numProducers     int   = 1
+var blockRecv    [][]int64             // indexed dimensions: numOrdsToWatch and numChannels
+var txRecv       [][]int64             // indexed dimensions: numOrdsToWatch and numChannels
+var totalBlockRecv   int64 = 0         // total for all consumers (on one orderer)
+var totalTxRecv      int64 = 0         // total for all consumers (on one orderer)
 
 func main() {
 
         var serverAddr string
 
-        config := config.Load()
+        config := config.Load()  // establish the default configuration from yaml files
+        ordererType = config.General.ordererType
+
+	// : Check parameters and/or env vars to see if user wishes to override default config parms:
+        // 1- num orderers in network (1, ...)
+        // 2- ordererType (solo, kafka, sbft, ...)
+        // 3- num kafka-brokers (0, ...) //only makes sense when ordererType==kafka
+        // 4- total number of Transactions to send (1, ...)
+        // 5- num orderers to which to send transactions (1, ...)   // must be <= (1)
+        // 6- num channels to use; Tx will be sent to all channels equally (1, ...)
+        // Num producers is determined by (5)x(6)
+        // Num consumers is determined by (6) - when using one orderer, or 
+        //               is determined by (6)x(1) - when using all orderers
+        // FUTURE changing Num Channels higher than 1 will require more work to set up...
+
+        // TODO...
+
+
+
+        var numOrdsToWatch int = 1
+        //numOrdsToWatch = numOrdsInNtwk  // do this if we want to watch every orderer -
+                                              // to verify they are all delivering the same 
+        numConsumers = numOrdsInNtwk * numChannels
+        numProducers = numOrdsToGetTx * numChannels
+
+        // Create the 2D arrays of counters
+
+        for i := 0; i < numOrdsToGetTx; i++ {  // for all orderers to which we will be sending transactions
+                sendPassCntrs := make([]int64, numChannels) // create a set of counters for each channel
+                txSent = append(txSent, sendPassCntrs)      // orderer-i gets a set
+                sendFailCntrs := make([]int64, numChannels) // create a set of counters for each channel
+                txSentFailures = append(txSentFailures, sendFailCntrs) // orderer-i gets a set
+        }
+        for i := 0; i < numOrdsToWatch; i++ {  // for all orderers which we will watch/monitor for deliveries
+                blockRecvCntrs := make([]int64, numChannels)  // create a set of block counters for each channel
+                blockRecv = append(blockRecv, blockRecvCntrs) // orderer-i gets a set
+                txRecvCntrs := make([]int64, numChannels)     // create a set of tx counters for each channel
+                txRecv = append(txRecv, txRecvCntrs)          // orderer-i gets a set
+        }
+
+
+        // For now, launchnetwork() uses docker-compose. later, we will need to pass args to it so it can
+        // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
         launchnetwork()
 
-        //var numOrdsToWatch int = numOrderers  // we may want to watch every orderer - when we write tests
-                                                // that require stop/restarting the orderers themselves
-        var numOrdsToWatch int = 1
 
-        // start threads for a consumer to watch each channel on specified number of orderers.
+        // start threads for a consumer to watch each channel on all (the specified number of) orderers.
         // This code assumes orderers in the network will use increasing port numbers:
         // the first ordererer uses default port (7050), the second uses 7051, third uses 7052, etc.
         for ord := 0; ord < numOrdsToWatch; ord++ {
-                sprintf(&serverAddr, "%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
-                for c := 0 ; c < len(channels) ; c++ {
-                        go startConsumer(serverAddr, channels[c], c)
-			numConsumers++
+                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
+                for c := 0 ; c < numChannels ; c++ {
+                        go startConsumer(serverAddr, channels[c], ord, c)
                 }
         }
 
         // now that the orderer service network is running, and the consumers are watching for deliveries,
         // we can start clients which will broadcast the specified number of msgs to their associated orderers
-        var wg sync.WaitGroup
-        wg.Add(numProducers)
-        for producer := 0; producer < numProducers; producer++ {
-                sprintf(&serverAddr, "%s:%d", config.General.ListenAddress, config.General.ListenPort + (producer % numOrderers))
-                for c := 0 ; c < len(channels) ; c++ {
-                        go startProducer(serverAddr, channels[c], numTxToSend/numProducers)
+        producers_wg.Add(numProducers)
+        for ord := 0; ord < numOrdsToGetTx; ord++ {
+                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord))
+                for c := 0 ; c < numChannels ; c++ {
+                        sendCount := numTxToSend / numProducers
+                        if c==0 { sendCount += numTxToSend % numProducers }
+                        go startProducer(serverAddr, channels[c], ord, c, sendCount)
                 }
         }
 
@@ -187,21 +245,47 @@ func main() {
         // Wait and recheck as necessary, as long as the delivery counter is getting closer to the broadcast counter
 
 	if !doneConsuming() {    // check if tx counts match on all consumers, or all consumers are no longer receiving blocks
-               wait and retry
+               // TODO - SCOTT
+               // loop: wait and retry
         }
 
-        computeTotals()
+        computeTotals()  // TODO - Surya write this function
+          // e.g.    totalTxRecv = sum of txRecv[][]     // for all consumers: numOrdsToWatch x numChannels
+          // e.g.    totalNumTxSent = sum of txSent[][]  // for all producers: numOrdsToGetTx x numChannels
+
         var successResult bool = false
-        if totalTxRecv == numTxToSend (+ genesisblocks for each channel) {
+        var successStr string = "FAILED"
+        // if totalTxRecv == numTxToSend plus a genesisblock for each channel {
+        if (totalTxRecv == numTxToSend + numChannels) {
                  // every Tx was successfully sent AND delivered by orderer
+                 fmt.Println("Hooray! Every TX was successfully sent AND delivered by orderer service")
                  successResult = true
+                 successStr = "PASSED"
         }
 
-         // e.g.    totaxTxRecv = sum of txRecv[for all numConsumers]
-
-        if  totalTxRecv == numSent + numSendFailures {
-                 // everything that was received by orderer was successfully delivered
+        else if (totalTxRecv == totalNumTxSent + totalNumTxSentFailures) {
+                 fmt.Println("Good (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered")
         }
-        print output result and counts
+
+        else {
+                 fmt.Println("BOO! Some acknowledged TX were LOST by orderer service!")
+        }
+
+
+        /////////////////// TODO - Surya     MOVE THIS INTO A FUNCTION /////////////////////////
+        //  
+
+        // print output result and counts
+        fmt.Println(fmt.Sprintf("Testname %s %s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", testName, successStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv))
+
+        // for each producer print the ordererNumber & channel, the TX requested to be sent, the actual num sent and num failed-to-send
+
+        // for each consumer print the ordererNumber & channel, the num blocks and the num transactions received/delivered
+
+        //  
+        /////////////////// MOVE THIS INTO A FUNCTION /////////////////////////
+
+
+
         return successResult 
 }
