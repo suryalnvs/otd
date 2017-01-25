@@ -166,7 +166,11 @@ func launchnetwork() {
 	      executeCmdAndDisplay("docker ps -a")
 }
 
+<<<<<<< HEAD
 func startProducer(serverAddr string, channelID string, ordererIndex int, channelIndex int, txReq int64) {
+=======
+func startProducer(serverAddr string, channelID string, ordererIndex int, channelIndex int, sendCount int64) {
+>>>>>>> 3b83c12e966744298999079272bae39434cba9c7
      //TODO - Surya
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         defer func() {
@@ -186,7 +190,11 @@ func startProducer(serverAddr string, channelID string, ordererIndex int, channe
         b := newBroadcastClient(client, chainID)
         //var counter int64
 
+<<<<<<< HEAD
         for i := int64(0); i < txReq ; i++ {
+=======
+        for i := int64(0); i < sendCount; i++ {
+>>>>>>> 3b83c12e966744298999079272bae39434cba9c7
            b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
            err = b.getAck()
            if err == nil {
@@ -198,17 +206,26 @@ func startProducer(serverAddr string, channelID string, ordererIndex int, channe
         if err != nil {
            fmt.Printf("\nError: %v\n", err)
         }
+<<<<<<< HEAD
         if txReq - txSent [ordererIndex][channelIndex] == 0 {
            fmt.Println("Total number of messages delivered %d", txReq;
         } else {
            fmt.Println("Total Successful messages delivered %d", txSent [ordererIndex][channelIndex]);
            fmt.Println("Messages  that are failed to deliver %d", (txReq - txSent [ordererIndex][channelIndex]));
+=======
+        if sendCount - txSent [ordererIndex][channelIndex] == 0 {
+           fmt.Println("Total number of messages delivered %d", sendCount);
+        } else {
+           fmt.Println("Total Successful messages delivered %d", txSent [ordererIndex][channelIndex]);
+           fmt.Println("Messages  that are failed to deliver %d", (sendCount - txSent [ordererIndex][channelIndex]));
+>>>>>>> 3b83c12e966744298999079272bae39434cba9c7
         }
         producers_wg.Done()
 }
 
 func computeTotals() {
   // computing totals for sending and receiving
+<<<<<<< HEAD
   var successCount int64 = 0
   var failureCount int64 = 0
   for i = 0; i < numOrdsToGetTx; i++ {
@@ -223,6 +240,18 @@ func computeTotals() {
       totalTxRecv += totaltxRecv[k][l];
       totalBlockRecv += blockRecv[k][l]
       fmt.Println("For Orderer: "+k+" Channel: "+l+" Total Blocks received: "+blockRecv[k][l]+" Transactions delivered: "+totaltxRecv[k][l])
+=======
+  var successCount int64 = 0;
+  var failureCount int64 = 0;
+  for i = 0; i < numOrdsInNtwk; i++ {
+    for j = 0; j < numChannels; j++ {
+      successCount += txSent [i][j];
+      failureCount += txSentFailures [i][j];
+    }
+    for k = 0; k < numConsumers; k++ {
+      totalTxRecv += totaltxRecv[i][k];
+      totalBlockRecv += blockRecv[i][k]
+>>>>>>> 3b83c12e966744298999079272bae39434cba9c7
     }
   }
   totalNumTxSent = successCount + numChannels;
@@ -233,9 +262,13 @@ func computeTotals() {
   fmt.Println("Total Received Count %d", totalTxRecv);
   fmt.Println("Total received blocks %d", totalBlockRecv);
 }
+<<<<<<< HEAD
 func reports() {
   fmt.Println(fmt.Sprintf("Testname %s %s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", testName, successStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv))
 }
+=======
+
+>>>>>>> 3b83c12e966744298999079272bae39434cba9c7
 var producers_wg sync.WaitGroup
 var channelID string = provisional.TestChainID // default hardcoded channel for testing
 var channels []string = { channelID }   // ...later we can enhance code to read/join more channels...
