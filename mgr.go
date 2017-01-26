@@ -215,7 +215,7 @@ func sendEqualRecv() bool {
         return matching
 }
 
-func moreDeliveries() moreReceived bool {
+func moreDeliveries() (moreReceived bool) {
         moreReceived = false
         prevTotalTxRecv := totalTxRecv
         computeTotals()
@@ -301,7 +301,7 @@ func computeTotals() {
   }
 }
 
-func reportTotals() successResult bool, resultStr string {
+func reportTotals() (successResult bool, resultStr string) {
 
         var passFailStr string = "FAILED"
         successResult = false
@@ -357,7 +357,7 @@ func reportTotals() successResult bool, resultStr string {
         }
 
         // print output result and counts : overall summary
-        resultStr = fmt.Sprint("%s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv))
+        resultStr = fmt.Sprint("%s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
         fmt.Println(resultStr)
 
         return successResult, resultStr
@@ -366,12 +366,11 @@ func reportTotals() successResult bool, resultStr string {
 var producers_wg sync.WaitGroup
 var channelID string = provisional.TestChainID // default hardcoded channel for testing
 //var channels = []string { channelID }   // ...later we can enhance code to read/join more channels...
-var channels = []string                 
+var channels []string
 var numChannels int = 1
 var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
 var numOrdsToWatch int = 1              // default set to 1; we must watch at least one orderer
 var numOrdsToGetTx int = 1              // default; the testcase may override this with the number of orderers to recv TXs
-var numOrdsToWatch int = 1              // we must watch at least one orderer
 var ordererType string = "solo"         // default; the testcase may override this
 var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
 var numConsumers int = 1                // default; this will be set based on other testcase parameters
@@ -407,7 +406,7 @@ var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
 
 // return a pass/fail bool, and-or a string?
-func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) successResult bool, resultStr string {
+func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) (successResult bool, resultStr string) {
 
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.Genesis.OrdererType
@@ -441,9 +440,10 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
         // TODO - how do we ensure these are the same ones added/created in the launched network itself ???
 
-        channels = make([]int64, numChannels)     // create a counter for each of the channels
-        for c:=0; c < chans; c++ { 
-                channels[c] = fmt.Sprintf("testchan_%05d", c)
+        channels = make([]string, numChannels)     // create a counter for each of the channels
+        for c:=0; c < numChannels; c++ { 
+               // channels[c] = fmt.Sprintf("testchan_%05d", c)
+               channels[c] = provisional.TestChainID
         }
 
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -476,7 +476,7 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         // This code assumes orderers in the network will use increasing port numbers:
         // the first ordererer uses default port (7050), the second uses 7051, third uses 7052, etc.
         for ord := 0; ord < numOrdsToWatch; ord++ {
-                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
+                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         go startConsumer(serverAddr, channels[c], ord, c)
                 }
@@ -488,7 +488,7 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         sendStart := time.Now().Unix()
         producers_wg.Add(numProducers)
         for ord := 0; ord < numOrdsToGetTx; ord++ {
-                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
+                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / int64(numProducers)
                         if c==0 { sendCount[ord][c] += numTxToSend % int64(numProducers) }
@@ -532,7 +532,7 @@ func main() {
         fmt.Println("START: Kafka test: send 100,000 TX to 3 Orderers, using 3 kafka-brokers and ZK")
         resKafka, resStrKafka := ote("kafka", 3, 100000, 3, 3, 1 )
 
-        if resSolo && resKafka && resStrSolo != "" and resStrKafka != "" {
+        if resSolo && resKafka && resStrSolo != "" && resStrKafka != "" {
                 fmt.Println("BOTH TESTS PASSED. All done!")
         } else {
                 fmt.Println("Something went wrong. Finished.")
