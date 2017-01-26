@@ -1,8 +1,38 @@
-package main
 
-// TODO - restructure as a package, change main() to be a function odt(), and then can call odt(with,parms) from testcases
+/*
+Copyright IBM Corp. 2017 All Rights Reserved.
 
-// TODO - restructure for junit output
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package ote
+
+// Orderer Test Engine
+// ===================
+// Consists of a manager, function ote(), which can:
+// + launch a network of orderers per the specified parameters
+//   (including kafka brokers or other necessary support processes)
+//   by invoking another tool via exec command
+// + create producers to send/broadcast msgs to the orderers, concurrently
+// + create consumers to invoke deliver on the orderers to receive msgs
+// + use parameters for specifying number of channels, number of orderers
+//   to which to broadcast transactions, etc
+// + generate transactions, dividing up the requested TX count among
+//   all the channels on the orderers requested, and counts them all
+// + confirm all the orderers deliver the same blocks and transactions
+// + validate the last block of transactions that was ordered and stored
+// + print status results report
+// + return a pass/fail result
 
 import (
         "flag"
@@ -301,12 +331,14 @@ func moreDeliveries() moreReceived bool {
 
 var producers_wg sync.WaitGroup
 var channelID string = provisional.TestChainID // default hardcoded channel for testing
-var channels []string = { channelID }   // ...later we can enhance code to read/join more channels...
+var channels = []string { channelID }   // ...later we can enhance code to read/join more channels...
 var numChannels int = len(channels)     // ...later we can enhance code to read/join more channels...
 var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
 var numOrdsToGetTx int = 1              // default; the testcase may override this with the number of orderers to recv TXs
 var ordererType string = "solo"         // default; the testcase may override this
 var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
+var numConsumers int = 1                // default; this will be set based on other testcase parameters
+var numProducers int = 1                // default; this will be set based on other testcase parameters
 
 // numTxToSend is the total number of Transactions to send;
 // A fraction will be sent by each producer - one producer for each channel for each numOrdsToGetTx
@@ -314,47 +346,57 @@ var numTxToSend            int64 = 1    // default; the testcase may override th
 
 // Each producer sends TXs to one channel on one orderer, and increments its own counters for
 // the successfully sent Tx, and the send-failures (rejected/timeout).
-var sendCount          [][]int64
-var txSent             [][]int64       // indexed dimensions: numOrdsToGetTx and numChannels
-var txSentFailures     [][]int64       // indexed dimensions: numOrdsToGetTx and numChannels
+// These 2D arrays are indexed by dimensions: numOrdsToGetTx and numChannels
+
+var sendCount          [][]int64       // counter of TX to be sent
+var txSent             [][]int64       // TX sendSuccesses on ord[]channel[]
+var txSentFailures     [][]int64       // TX sendFailures  on ord[]channel[]
 var totalNumTxSent         int64 = 0
 var totalNumTxSentFailures int64 = 0
 
 // Each consumer receives blocks delivered on one channel from one orderer,
 // and must track its own counters for the received number of blocks and
 // received number of Tx.
-// We will create one consumer for each channel on one orderer, and
-// a set of consumers (one for each channel) on ALL the orderers
-// (so we can check to ensure they all receive the same deliveries).
+// We will create consumers for every channel on an orderer, and total up the TXs received.
+// And do that for all the orderers (indexed by numOrdsToWatch).
+// We will check to ensure all the orderers receive all the same deliveries.
+// These 2D arrays are indexed by dimensions: numOrdsToWatch and numChannels
 
-var numConsumers     int   = 1
-var numProducers     int   = 1
-var blockRecv    [][]int64             // indexed dimensions: numOrdsToWatch and numChannels
-var txRecv       [][]int64             // indexed dimensions: numOrdsToWatch and numChannels
-var totalBlockRecv []int64 = 0         // total for all consumers (counter for each orderer)
-var totalTxRecv    []int64 = 0         // total for all consumers (counter for each orderer)
-var successStr string = "FAILED"
+var blockRecv    [][]int64
+var txRecv       [][]int64
+var totalBlockRecv []int64 = 0         // total Blocks recvd by all consumers on an orderer, indexed by numOrdsToWatch
+var totalTxRecv    []int64 = 0         // total TXs received by all consumers on an orderer, indexed by numOrdsToWatch
 var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
+var successResult bool = false
+var successStr string = "FAILED"
 
-func main() {
+func ote() bool {
 
         var serverAddr string
 
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.General.ordererType
 
-	// : Check parameters and/or env vars to see if user wishes to override default config parms:
-        // 1- num orderers in network (1, ...)
-        // 2- ordererType (solo, kafka, sbft, ...)
-        // 3- num kafka-brokers (0, ...) //only makes sense when ordererType==kafka
-        // 4- total number of Transactions to send (1, ...)
-        // 5- num orderers to which to send transactions (1, ...)   // must be <= (1)
-        // 6- num channels to use; Tx will be sent to all channels equally (1, ...)
-        // Num producers is determined by (5)x(6)
-        // Num consumers is determined by (6) - when using one orderer, or
+        //
+	// Check parameters and/or env vars to see if user wishes to override default config parms:
+        //
+        // Arguments to override configuration parameter values in yaml file:
+        // 1- ordererType (solo, kafka, sbft, ...)
+        // 2- num kafka-brokers (0, ...) //only makes sense when ordererType==kafka
+        //
+        // Arguments for OTE settings for test variations:
+        // 3- total number of Transactions to send (1, ...)
+        // 4- numOrdsInNtwk - num orderers in network (1, ...)
+        // 5- numOrdsToGetTx - num orderers to which to send transactions (1, ...)   // must be <= (1)
+        // 6- numChannels - num channels to use; Tx will be sent to all channels equally (1, ...)
+        //
+        // Others:
+        // numProducers is determined by (5)x(6)
+        // numConsumers is determined by (6) - when using one orderer, or
         //               is determined by (6)x(1) - when using all orderers
-        // FUTURE changing Num Channels higher than 1 will require more work to set up...
+
+        // FUTURE TODO: to actually use Num Channels higher than 1 will require more coding work to set up...
 
         // TODO...
 
@@ -431,17 +473,16 @@ func main() {
 
         reportTotals()
 
-        var successResult bool = false
         // if totalTxRecv on one orderer == numTxToSend plus a genesisblock for each channel {
         if (totalTxRecv[0] == numTxToSend + numChannels) {            // recv count on orderer 0 matches the send count
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
                         // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
                         fmt.Println("\nHooray! Every TX was successfully sent AND delivered by orderer service.")
+                        successResult = true
+                        successStr = "PASSED"
                 } else {
-                        fmt.Println("\nHooray! Every TX was successfully sent AND delivered by at least one orderer -\nBUT all orderers that were being watched did not deliver the same counts !!!!!")
+                        fmt.Println("\nInconsistent success: Every TX was successfully sent AND delivered by at least one orderer -\nHOWEVER all orderers that were being watched did not deliver the same counts !!!!!")
                 }
-                successResult = true
-                successStr = "PASSED"
         }
         else if (totalTxRecv == totalNumTxSent + totalNumTxSentFailures) {
                  fmt.Println("\nGood (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered.")
