@@ -328,12 +328,23 @@ func moreDeliveries() bool {
         if prevTxRecv == txRecv[0] { moreReceived = false }
         return moreReceived
 }
+func moreDeliveries() moreReceived bool {
+        moreReceived = false
+        prevTotalTxRecv := totalTxRecv
+        computeTotals()
+        for ordNum := 0; ordNum < numOrdsToWatch; ordNum++ {
+                if prevTotalTxRecv[ordNum] != totalTxRecv[ordNum] { moreReceived = true }
+        }
+        return moreReceived
+}
 
 var producers_wg sync.WaitGroup
 var channelID string = provisional.TestChainID // default hardcoded channel for testing
-var channels = []string { channelID }   // ...later we can enhance code to read/join more channels...
-var numChannels int = len(channels)     // ...later we can enhance code to read/join more channels...
+//var channels = []string { channelID }   // ...later we can enhance code to read/join more channels...
+var channels = []string                 
+var numChannels int = 1
 var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
+var numOrdsToWatch int = 1              // default set to 1; we must watch at least one orderer
 var numOrdsToGetTx int = 1              // default; the testcase may override this with the number of orderers to recv TXs
 var ordererType string = "solo"         // default; the testcase may override this
 var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
@@ -373,40 +384,36 @@ var successStr string = "FAILED"
 
 func ote() bool {
 
-        var serverAddr string
+func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) bool {
 
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.General.ordererType
 
-        //
 	// Check parameters and/or env vars to see if user wishes to override default config parms:
-        //
+
         // Arguments to override configuration parameter values in yaml file:
-        // 1- ordererType (solo, kafka, sbft, ...)
-        // 2- num kafka-brokers (0, ...) //only makes sense when ordererType==kafka
         //
+        if oType != "default"     { ordererType = oType }     // 1- ordererType (solo, kafka, sbft, ...)
+        if ordererType == "kafka" { numKBrokers = kbs   }     // 2- num kafka-brokers
+
         // Arguments for OTE settings for test variations:
-        // 3- total number of Transactions to send (1, ...)
-        // 4- numOrdsInNtwk - num orderers in network (1, ...)
-        // 5- numOrdsToGetTx - num orderers to which to send transactions (1, ...)   // must be <= (1)
-        // 6- numChannels - num channels to use; Tx will be sent to all channels equally (1, ...)
         //
-        // Others:
-        // numProducers is determined by (5)x(6)
-        // numConsumers is determined by (6) - when using one orderer, or
-        //               is determined by (6)x(1) - when using all orderers
+        if txs > 0                { numTxToSend = txs   }     // 3- total number of Transactions to send
+        if oInNtwk > 0            { numOrdsInNtwk = oInNtwk } // 4- num orderers in network
+        if oUsed > 0 && oUsed <= numOrdsInNtwk { numOrdsToGetTx = oUsed } // 5- num orderers to which to send TXs 
+        if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
 
-        // FUTURE TODO: to actually use Num Channels higher than 1 will require more coding work to set up...
+        for c:=1; c <= chans; c++ { 
+                channels[c] = fmt.Sprintf("chan_%04d", c)
+        }
 
-        // TODO...
+        // Others, which are dependent on the arguments:
+        // 
+        numProducers = numOrdsToGetTx * numChannels           // determined by (5)x(6)
+        numConsumers = numChannels * numOrdsInNtwk            // determined by (6)x(4) - when using all orderers
 
-
-
-        var numOrdsToWatch int = 1      // we must watch at least one orderer
-        numOrdsToWatch = numOrdsInNtwk  // or, we could assign this and watch every orderer -
+        numOrdsToWatch = numOrdsInNtwk  // we could assign a value more than one, and watch every orderer -
                                         // to verify they are all delivering the same
-        numConsumers = numOrdsInNtwk * numChannels
-        numProducers = numOrdsToGetTx * numChannels
 
         // Create the 1D and 2D slices of counters for the producers and consumers. All are initialized to zero.
 
@@ -427,6 +434,7 @@ func ote() bool {
         totalTxRecv    := make([]int64, numOrdsToWatch)  // create counter for each orderer, for total tx received (for all channels)
         totalBlockRecv := make([]int64, numOrdsToWatch)  // create counter for each orderer, for total blk received (for all channels)
 
+//TODO init //var channels = []string                 
         // For now, launchNetwork() uses docker-compose. later, we will need to pass args to it so it can
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
         launchNetwork()
@@ -436,7 +444,7 @@ func ote() bool {
         // This code assumes orderers in the network will use increasing port numbers:
         // the first ordererer uses default port (7050), the second uses 7051, third uses 7052, etc.
         for ord := 0; ord < numOrdsToWatch; ord++ {
-                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
+                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
                 for c := 0 ; c < numChannels ; c++ {
                         go startConsumer(serverAddr, channels[c], ord, c)
                 }
@@ -447,7 +455,7 @@ func ote() bool {
         sendStart := time.Now().Unix()
         producers_wg.Add(numProducers)
         for ord := 0; ord < numOrdsToGetTx; ord++ {
-                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
+                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / numProducers
                         if c==0 { sendCount[ord][c] += numTxToSend % numProducers }
