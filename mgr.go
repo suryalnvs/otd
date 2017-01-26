@@ -184,6 +184,9 @@ func executeCmdAndDisplay(cmd string) {
 }
 
 func cleanNetwork() {
+        fmt.Println("Removing all network nodes docker containers:")
+        executeCmdAndDisplay("docker ps -a")
+
         // Docker is not perfect; we need to unpause any paused containers, before we can kill them.
         _ = executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
 
@@ -192,8 +195,6 @@ func cleanNetwork() {
 
         // remove any running or exited docker processes
         _ = executeCmd("docker rm -f $(docker ps -aq)")
-
-        fmt.Println("Removed all network nodes docker containers")
 }
 
 func launchNetwork() {
@@ -204,8 +205,27 @@ func launchNetwork() {
         executeCmdAndDisplay("docker ps -a")
 }
 
+func sendEqualRecv() bool {
+        var matching = false;
+        if (totalTxRecv[0] == numTxToSend + int64(numChannels)) {            // recv count on orderer 0 matches the send count
+                if !totalTxRecvMismatch && !totalBlockRecvMismatch {  // all orderers have same recv count
+                        matching = true
+                }
+        }
+        return matching
+}
+
+func moreDeliveries() moreReceived bool {
+        moreReceived = false
+        prevTotalTxRecv := totalTxRecv
+        computeTotals()
+        for ordNum := 0; ordNum < numOrdsToWatch; ordNum++ {
+                if prevTotalTxRecv[ordNum] != totalTxRecv[ordNum] { moreReceived = true }
+        }
+        return moreReceived
+}
+
 func startProducer(serverAddr string, chainID string, ordererIndex int, channelIndex int, txReq int64) {
-     //TODO - Surya
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         defer func() {
           _ = conn.Close()
@@ -236,11 +256,12 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
         if err != nil {
            fmt.Printf("\nError: %v\n", err)
         }
-        if txReq - txSent [ordererIndex][channelIndex] == 0 {
-           fmt.Println("Total number of messages delivered %d", txReq);
+        if txReq == txSent[ordererIndex][channelIndex] {
+           fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
         } else {
-           fmt.Println("Total Successful messages delivered %d", txSent [ordererIndex][channelIndex]);
-           fmt.Println("Messages  that are failed to deliver %d", (txReq - txSent [ordererIndex][channelIndex]));
+           fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
+           fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg NACKs %9d", ordererIndex, channelIndex, txSentFailures[ordererIndex][channelIndex]))
+           fmt.Println(fmt.Sprintf("Total o%dc%d broadcasts - others %9d", ordererIndex, channelIndex, txReq - txSentFailures[ordererIndex][channelIndex] - txSent[ordererIndex][channelIndex]))
         }
         producers_wg.Done()
 }
@@ -280,65 +301,66 @@ func computeTotals() {
   }
 }
 
-func reportTotals() {
-  // print output result and counts : overall summary
-  fmt.Println(fmt.Sprintf("\n%s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", successStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv))
+func reportTotals() successResult bool, resultStr string {
 
-  // for each producer print the ordererNumber & channel, the TX requested to be sent, the actual num sent and num failed-to-send
-  for i := 0; i < numOrdsToGetTx; i++ {
-    for j := 0; j < numChannels; j++ {
-      fmt.Println("PRODUCER For Orderer: ",i ," Channel: ",j ," Total transactions requested to send: ",sendCount[i][j] ," Transactions Sent successfully ", txSent[i][j] ," Transactions failed to send: ",txSentFailures[i][j])
-    }
-  }
+        var passFailStr string = "FAILED"
+        successResult = false
+        resultStr = ""
 
-  // for each consumer print the ordererNumber & channel, the num blocks and the num transactions received/delivered
-  for k := 0; k < numOrdsToWatch; k++ {
-    for l := 0; l < numChannels; l++ {
-      fmt.Println("CONSUMER For Orderer: ",k," Channel: ",l," Total Blocks received: ",blockRecv[k][l]," Transactions delivered: ",txRecv[k][l])
-    }
-  }
-
-  fmt.Println("Total TX broadcasts Requested to Send %9d", numTxToSend)
-  fmt.Println("Total TX broadcasts sentSuccessCount  %9d", totalNumTxSent)
-  fmt.Println("Total TX broadcasts sendFailureCount  %9d", totalNumTxSentFailures)
-  fmt.Println("Total deliveries Received TX Count    %9d", totalTxRecv[0])
-  fmt.Println("Total deliveries Received Blocks      %9d", totalBlockRecv[0])
-  fmt.Println("Total LOST transactions ( BAD ! )     %9d", totalTxRecv[0] - totalNumTxSent - totalNumTxSentFailures)
-
-  // Check for differences on the deliveries from the orderers. These are probably errors -
-  // unless the test stopped an orderer on purpose and never restarted it, while the
-  // others continued to deliver transactions. (If an orderer is restarted, then it
-  // would reprocess all the back-ordered transactions to catch up with the others.)
-
-  if totalTxRecvMismatch { fmt.Println("!!!!! Num TXs Delivered is not same on all orderers!!!!!") }
-  if totalBlockRecvMismatch { fmt.Println("!!!!! Num Blocks Delivered is not same on all orderers!!!!!") }
-}
-
-func sendEqualRecv() bool {
-        var matching = false;
-        if (totalTxRecv[0] == numTxToSend + int64(numChannels)) {            // recv count on orderer 0 matches the send count
-                if !totalTxRecvMismatch && !totalBlockRecvMismatch {  // all orderers have same recv count
-                        matching = true
+        // for each producer print the ordererNumber & channel, the TX requested to be sent, the actual num sent and num failed-to-send
+        for i := 0; i < numOrdsToGetTx; i++ {
+                for j := 0; j < numChannels; j++ {
+                        fmt.Println("PRODUCER for o",i,"c",j," TX Requested:",sendCount[i][j]," TX Send ACKs:",txSent[i][j]," TX Send NACKs:",txSentFailures[i][j])
                 }
         }
-        return matching
-}
 
-func moreDeliveries() bool {
-        var moreReceived = true
-        prevTxRecv := txRecv[0][0]
-        computeTotals()
-        if prevTxRecv == txRecv[0][0]{moreReceived = false}
-        return moreReceived
-}
-func moreDeliveries() moreReceived bool {
-        moreReceived = false
-        prevTotalTxRecv := totalTxRecv
-        computeTotals()
-        for ordNum := 0; ordNum < numOrdsToWatch; ordNum++ {
-                if prevTotalTxRecv[ordNum] != totalTxRecv[ordNum] { moreReceived = true }
+        // for each consumer print the ordererNumber & channel, the num blocks and the num transactions received/delivered
+        for k := 0; k < numOrdsToWatch; k++ {
+                for l := 0; l < numChannels; l++ {
+                        fmt.Println("CONSUMER for o",k,"c",l," Blocks:",blockRecv[k][l]," Transactions:",txRecv[k][l])
+                }
         }
-        return moreReceived
+
+        fmt.Println(fmt.Sprintf("Total TX broadcasts Requested to Send %9d", numTxToSend))
+        fmt.Println(fmt.Sprintf("Total TX broadcasts sentSuccessCount  %9d", totalNumTxSent))
+        fmt.Println(fmt.Sprintf("Total TX broadcasts sendFailureCount  %9d BAD!", totalNumTxSentFailures))
+        fmt.Println(fmt.Sprintf("Total deliveries Received TX Count    %9d", totalTxRecv[0]))
+        fmt.Println(fmt.Sprintf("Total deliveries Received Blocks      %9d", totalBlockRecv[0]))
+        fmt.Println(fmt.Sprintf("Total LOST transactions               %9d BAD!!!", totalTxRecv[0] - totalNumTxSent - totalNumTxSentFailures))
+
+        // Check for differences on the deliveries from the orderers. These are probably errors -
+        // unless the test stopped an orderer on purpose and never restarted it, while the
+        // others continued to deliver transactions. (If an orderer is restarted, then it
+        // would reprocess all the back-ordered transactions to catch up with the others.)
+
+        if totalTxRecvMismatch { fmt.Println("!!!!! Num TXs Delivered is not same on all orderers!!!!!") }
+        if totalBlockRecvMismatch { fmt.Println("!!!!! Num Blocks Delivered is not same on all orderers!!!!!") }
+
+        // if totalTxRecv on one orderer == numTxToSend plus a genesisblock for each channel {
+        if (totalTxRecv[0] == numTxToSend + int64(numChannels)) {            // recv count on orderer 0 matches the send count
+                if !totalTxRecvMismatch && !totalBlockRecvMismatch {
+                        // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
+                        fmt.Println("\nHooray! Every TX was successfully sent AND delivered by orderer service.")
+                        successResult = true
+                        passFailStr = "PASSED"
+                } else {
+                        fmt.Println("\nOrderers were INCONSISTENT: Every TX was successfully sent AND delivered by at least one orderer -\nHOWEVER all orderers that were being watched did not deliver the same counts !!!!!")
+                }
+        } else if (totalTxRecv[0] == totalNumTxSent + totalNumTxSentFailures) {
+                if !totalTxRecvMismatch && !totalBlockRecvMismatch {
+                        fmt.Println("\nGood (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered.")
+                } else {
+                        fmt.Println("\nGood (but not perfect) - and the Orderers were INCONSISTENT! Every TX that was acknowledged AND delivered by at least one orderer -\nHOWEVER all orderers that were being watched did not deliver the same counts !!!!!")
+                }
+        } else {
+                fmt.Println("\nBOO! Some acknowledged TX were LOST by orderer service!")
+        }
+
+        // print output result and counts : overall summary
+        resultStr = fmt.Sprint("%s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv))
+        fmt.Println(resultStr)
+
+        return successResult, resultStr
 }
 
 var producers_wg sync.WaitGroup
@@ -383,33 +405,28 @@ var totalBlockRecv []int64          // total Blocks recvd by all consumers on an
 var totalTxRecv    []int64          // total TXs received by all consumers on an orderer, indexed by numOrdsToWatch
 var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
-var successResult bool = false
-var successStr string = "FAILED"
 
-func ote() bool {
-
-func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) bool {
+// return a pass/fail bool, and-or a string?
+func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) successResult bool, resultStr string {
 
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.Genesis.OrdererType
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
 	// Check parameters and/or env vars to see if user wishes to override default config parms:
 
         // Arguments to override configuration parameter values in yaml file:
-        //
+
         if oType != "default"     { ordererType = oType }     // 1- ordererType (solo, kafka, sbft, ...)
         if ordererType == "kafka" { numKBrokers = kbs   }     // 2- num kafka-brokers
 
         // Arguments for OTE settings for test variations:
-        //
+
         if txs > 0                { numTxToSend = txs   }     // 3- total number of Transactions to send
         if oInNtwk > 0            { numOrdsInNtwk = oInNtwk } // 4- num orderers in network
         if oUsed > 0 && oUsed <= numOrdsInNtwk { numOrdsToGetTx = oUsed } // 5- num orderers to which to send TXs 
-        if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
-
-        for c:=1; c <= chans; c++ { 
-                channels[c] = fmt.Sprintf("chan_%04d", c)
-        }
+        // Disable multichannel for now; just use the preset default (one):
+        // if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
 
         // Others, which are dependent on the arguments:
         // 
@@ -419,6 +436,17 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         numOrdsToWatch = numOrdsInNtwk  // we could assign a value more than one, and watch every orderer -
                                         // to verify they are all delivering the same
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        // Create the 1D slice of channel IDs, and create names for them which we will use
+        // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
+        // TODO - how do we ensure these are the same ones added/created in the launched network itself ???
+
+        channels = make([]int64, numChannels)     // create a counter for each of the channels
+        for c:=0; c < chans; c++ { 
+                channels[c] = fmt.Sprintf("testchan_%05d", c)
+        }
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // Create the 1D and 2D slices of counters for the producers and consumers. All are initialized to zero.
 
         for i := 0; i < numOrdsToGetTx; i++ {  // for all orderers to which we will be sending transactions
@@ -438,12 +466,12 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         totalTxRecv    = make([]int64, numOrdsToWatch)  // create counter for each orderer, for total tx received (for all channels)
         totalBlockRecv = make([]int64, numOrdsToWatch)  // create counter for each orderer, for total blk received (for all channels)
 
-//TODO init //var channels = []string                 
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // For now, launchNetwork() uses docker-compose. later, we will need to pass args to it so it can
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
         launchNetwork()
 
-
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // start threads for a consumer to watch each channel on all (the specified number of) orderers.
         // This code assumes orderers in the network will use increasing port numbers:
         // the first ordererer uses default port (7050), the second uses 7051, third uses 7052, etc.
@@ -454,6 +482,7 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
                 }
         }
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // now that the orderer service network is running, and the consumers are watching for deliveries,
         // we can start clients which will broadcast the specified number of msgs to their associated orderers
         sendStart := time.Now().Unix()
@@ -470,6 +499,7 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         fmt.Println("Send Duration (seconds):  ", time.Now().Unix() - sendStart)
         recoverStart := time.Now().Unix()
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // All producer threads are finished sending broadcast transactions.
         // Let's determine if the deliveries have all been received by the consumer threads.
         // We will check if the receive counts match the send counts on all consumers, or
@@ -483,25 +513,28 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         fmt.Println("Recovery Duration (secs): ", time.Now().Unix() - recoverStart)
         fmt.Println("(time waiting for orderer service to finish delivering transactions, after all producers finished sending them)")
 
-        reportTotals()
-
-        // if totalTxRecv on one orderer == numTxToSend plus a genesisblock for each channel {
-        if (totalTxRecv[0] == numTxToSend + int64(numChannels)) {            // recv count on orderer 0 matches the send count
-                if !totalTxRecvMismatch && !totalBlockRecvMismatch {
-                        // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
-                        fmt.Println("\nHooray! Every TX was successfully sent AND delivered by orderer service.")
-                        successResult = true
-                        successStr = "PASSED"
-                } else {
-                        fmt.Println("\nInconsistent success: Every TX was successfully sent AND delivered by at least one orderer -\nHOWEVER all orderers that were being watched did not deliver the same counts !!!!!")
-                }
-        } else if (totalTxRecv[0] == totalNumTxSent + totalNumTxSentFailures) {
-                 fmt.Println("\nGood (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered.")
-        } else {
-                 fmt.Println("\nBOO! Some acknowledged TX were LOST by orderer service!")
-        }
+        successResult, resultStr = reportTotals()
 
         cleanNetwork()
 
-        return successResult
+        return successResult, resultStr
+}
+
+
+func main() {
+
+        // input args:  ote ( ordererType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int )
+        // outputs:     finalPassFailResult, finalResultString
+
+        fmt.Println("START: Solo test: send 100,000 TX")
+        resSolo, resStrSolo := ote("solo", 0, 100000, 1, 1, 1 )
+
+        fmt.Println("START: Kafka test: send 100,000 TX to 3 Orderers, using 3 kafka-brokers and ZK")
+        resKafka, resStrKafka := ote("kafka", 3, 100000, 3, 3, 1 )
+
+        if resSolo && resKafka && resStrSolo != "" and resStrKafka != "" {
+                fmt.Println("BOTH TESTS PASSED. All done!")
+        } else {
+                fmt.Println("Something went wrong. Finished.")
+        }
 }
