@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ote
+package main
 
 // Orderer Test Engine
 // ===================
@@ -114,7 +114,7 @@ func (r *ordererdriveClient) readUntilClose(ordererNumber int, consumerNumber in
                 case *ab.DeliverResponse_Block:
                         txRecv[ordererNumber][consumerNumber] += int64(len(t.Block.Data.Data))
                         blockRecv[ordererNumber][consumerNumber] = int64(t.Block.Header.Number)
-			                  fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererNumber][consumerNumber])
+			                  //fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererNumber][consumerNumber])
                 }
         }
 }
@@ -188,7 +188,7 @@ func cleanNetwork() {
         executeCmdAndDisplay("docker ps -a")
 
         // Docker is not perfect; we need to unpause any paused containers, before we can kill them.
-        _ = executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
+        //_ = executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
 
         // kill any containers that are still running
         _ = executeCmd("docker kill $(docker ps -q)")
@@ -491,10 +491,11 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / int64(numProducers)
-                        if c==0 { sendCount[ord][c] += numTxToSend % int64(numProducers) }
+                        if c==0 && ord==0 { sendCount[ord][c] += numTxToSend % int64(numProducers) }
                         go startProducer(serverAddr, channels[c], ord, c, sendCount[ord][c])
                 }
         }
+        time.Sleep(10 * time.Second)
 
         fmt.Println("Send Duration (seconds):  ", time.Now().Unix() - sendStart)
         recoverStart := time.Now().Unix()
@@ -515,7 +516,7 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
 
         successResult, resultStr = reportTotals()
 
-        cleanNetwork()
+        //cleanNetwork()
 
         return successResult, resultStr
 }
@@ -526,15 +527,16 @@ func main() {
         // input args:  ote ( ordererType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int )
         // outputs:     finalPassFailResult, finalResultString
 
-        fmt.Println("START: Solo test: send 100,000 TX")
-        resSolo, resStrSolo := ote("solo", 0, 100000, 1, 1, 1 )
+        //fmt.Println("START: Solo test: send 100,000 TX")
+        //resSolo, resStrSolo := ote("solo", 0, 100000, 1, 1, 1 )
 
         fmt.Println("START: Kafka test: send 100,000 TX to 3 Orderers, using 3 kafka-brokers and ZK")
-        resKafka, resStrKafka := ote("kafka", 3, 100000, 3, 3, 1 )
+        //resKafka, resStrKafka := ote("kafka", 3, 100000, 3, 3, 1 )
+        _,_ = ote("kafka", 3, 10000, 3, 3, 1 )
 
-        if resSolo && resKafka && resStrSolo != "" && resStrKafka != "" {
+        /*if resSolo && resKafka && resStrSolo != "" && resStrKafka != "" {
                 fmt.Println("BOTH TESTS PASSED. All done!")
         } else {
                 fmt.Println("Something went wrong. Finished.")
-        }
+        }*/
 }
