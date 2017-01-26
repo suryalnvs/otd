@@ -279,7 +279,24 @@ func reportTotals() {
 
   if totalTxRecvMismatch { fmt.Println("!!!!! Num TXs Delivered is not same on all orderers!!!!!") }
   if totalBlockRecvMismatch { fmt.Println("!!!!! Num Blocks Delivered is not same on all orderers!!!!!") }
+}
 
+func sendEqualRecv() matching bool {
+        matching = false
+        if (totalTxRecv[0] == numTxToSend + numChannels) {            // recv count on orderer 0 matches the send count
+                if !totalTxRecvMismatch && !totalBlockRecvMismatch {  // all orderers have same recv count
+                        matching = true
+                }
+        }
+        return matching
+}
+
+func moreDeliveries() moreReceived bool {
+        moreReceived = true
+        prevTxRecv := txRecv[0]
+        computeTotals()
+        if prevTxRecv == txRecv[0] { moreReceived = false }
+        return moreReceived
 }
 
 var producers_wg sync.WaitGroup
@@ -343,9 +360,9 @@ func main() {
 
 
 
-        var numOrdsToWatch int = 1
-        //numOrdsToWatch = numOrdsInNtwk  // do this if we want to watch every orderer -
-                                              // to verify they are all delivering the same
+        var numOrdsToWatch int = 1      // we must watch at least one orderer
+        numOrdsToWatch = numOrdsInNtwk  // or, we could assign this and watch every orderer -
+                                        // to verify they are all delivering the same
         numConsumers = numOrdsInNtwk * numChannels
         numProducers = numOrdsToGetTx * numChannels
 
@@ -385,6 +402,7 @@ func main() {
 
         // now that the orderer service network is running, and the consumers are watching for deliveries,
         // we can start clients which will broadcast the specified number of msgs to their associated orderers
+        sendStart := time.Now().Unix()
         producers_wg.Add(numProducers)
         for ord := 0; ord < numOrdsToGetTx; ord++ {
                 serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord))
@@ -395,30 +413,35 @@ func main() {
                 }
         }
 
+        fmt.Println("Send Duration (seconds):  ", time.Now().Unix() - sendStart)
+        recoverStart := time.Now().Unix()
+
         // All producer threads are finished sending broadcast transactions.
         // Let's determine if the deliveries have all been received by the consumer threads.
-        // Wait and recheck as necessary, as long as the delivery counter is getting closer to the broadcast counter
-
-	if !doneConsuming() {    // check if tx counts match on all consumers, or all consumers are no longer receiving blocks
-               // TODO - SCOTT
-               // loop: wait and retry
-        }
+        // We will check if the receive counts match the send counts on all consumers, or
+        // if all consumers are no longer receiving blocks.
+        // Wait and continue rechecking as necessary, as long as the delivery (recv) counters
+        // are climbing closer to the broadcast (send) counter.
 
         computeTotals()
+        for !sendEqualRecv() && moreDeliveries() { time.Sleep(1 * time.Second) }
+
+        fmt.Println("Recovery Duration (secs): ", time.Now().Unix() - recoverStart)
+        fmt.Println("(time waiting for orderer service to finish delivering transactions, after all producers finished sending them)")
 
         reportTotals()
 
         var successResult bool = false
         // if totalTxRecv on one orderer == numTxToSend plus a genesisblock for each channel {
-        if (totalTxRecv[0] == numTxToSend + numChannels) {
-            if !totalTxRecvMismatch && !totalBlockRecvMismatch {
-                // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
-                fmt.Println("\nHooray! Every TX was successfully sent AND delivered by orderer service.")
-            } else {
-                fmt.Println("\nHooray! Every TX was successfully sent AND delivered by at least one orderer - BUT all orderers did not deliver the same count!!!!!")
-            }
-            successResult = true
-            successStr = "PASSED"
+        if (totalTxRecv[0] == numTxToSend + numChannels) {            // recv count on orderer 0 matches the send count
+                if !totalTxRecvMismatch && !totalBlockRecvMismatch {
+                        // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
+                        fmt.Println("\nHooray! Every TX was successfully sent AND delivered by orderer service.")
+                } else {
+                        fmt.Println("\nHooray! Every TX was successfully sent AND delivered by at least one orderer -\nBUT all orderers that were being watched did not deliver the same counts !!!!!")
+                }
+                successResult = true
+                successStr = "PASSED"
         }
         else if (totalTxRecv == totalNumTxSent + totalNumTxSentFailures) {
                  fmt.Println("\nGood (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered.")
