@@ -151,13 +151,13 @@ func executeCmdAndDisplay(cmd string) {
 }
 
 func cleanNetwork() {
-        # Docker is not perfect; we need to unpause any paused containers, before we can kill them.
+        // Docker is not perfect; we need to unpause any paused containers, before we can kill them.
         executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
 
-        # kill any containers that are still running
+        // kill any containers that are still running
         executeCmd("docker kill $(docker ps -q)")
 
-        # remove any running or exited docker processes
+        // remove any running or exited docker processes
         executeCmd("docker rm -f $(docker ps -aq)")
 
         fmt.Println("Removed all network nodes docker containers")
@@ -204,7 +204,7 @@ func startProducer(serverAddr string, channelID string, ordererIndex int, channe
            fmt.Printf("\nError: %v\n", err)
         }
         if txReq - txSent [ordererIndex][channelIndex] == 0 {
-           fmt.Println("Total number of messages delivered %d", txReq;
+           fmt.Println("Total number of messages delivered %d", txReq);
         } else {
            fmt.Println("Total Successful messages delivered %d", txSent [ordererIndex][channelIndex]);
            fmt.Println("Messages  that are failed to deliver %d", (txReq - txSent [ordererIndex][channelIndex]));
@@ -281,8 +281,8 @@ func reportTotals() {
   if totalBlockRecvMismatch { fmt.Println("!!!!! Num Blocks Delivered is not same on all orderers!!!!!") }
 }
 
-func sendEqualRecv() matching bool {
-        matching = false
+func sendEqualRecv() bool {
+        var matching = false;
         if (totalTxRecv[0] == numTxToSend + numChannels) {            // recv count on orderer 0 matches the send count
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {  // all orderers have same recv count
                         matching = true
@@ -291,8 +291,8 @@ func sendEqualRecv() matching bool {
         return matching
 }
 
-func moreDeliveries() moreReceived bool {
-        moreReceived = true
+func moreDeliveries() bool {
+        var moreReceived = true
         prevTxRecv := txRecv[0]
         computeTotals()
         if prevTxRecv == txRecv[0] { moreReceived = false }
@@ -405,7 +405,7 @@ func main() {
         sendStart := time.Now().Unix()
         producers_wg.Add(numProducers)
         for ord := 0; ord < numOrdsToGetTx; ord++ {
-                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord))
+                serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + ord)
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / numProducers
                         if c==0 { sendCount[ord][c] += numTxToSend % numProducers }
@@ -442,11 +442,9 @@ func main() {
                 }
                 successResult = true
                 successStr = "PASSED"
-        }
-        else if (totalTxRecv == totalNumTxSent + totalNumTxSentFailures) {
+        } else if (totalTxRecv == totalNumTxSent + totalNumTxSentFailures) {
                  fmt.Println("\nGood (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered.")
-        }
-        else {
+        } else {
                  fmt.Println("\nBOO! Some acknowledged TX were LOST by orderer service!")
         }
 
