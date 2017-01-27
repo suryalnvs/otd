@@ -191,7 +191,7 @@ func cleanNetwork() {
         //_ = executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
 
         // kill any containers that are still running
-        _ = executeCmd("docker kill $(docker ps -q)")
+        //_ = executeCmd("docker kill $(docker ps -q)")
 
         // remove any running or exited docker processes
         _ = executeCmd("docker rm -f $(docker ps -aq)")
@@ -200,8 +200,7 @@ func cleanNetwork() {
 func launchNetwork() {
         fmt.Println("Start orderer service, using docker-compose")
         _ = executeCmd("docker-compose up -d")
-        fmt.Println("After start orderer service, check containers after sleep 10 secs")
-        time.Sleep(10 * time.Second)
+        time.Sleep(2 * time.Second)
         executeCmdAndDisplay("docker ps -a")
 }
 
@@ -424,8 +423,7 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         if txs > 0                { numTxToSend = txs   }     // 3- total number of Transactions to send
         if oInNtwk > 0            { numOrdsInNtwk = oInNtwk } // 4- num orderers in network
         if oUsed > 0 && oUsed <= numOrdsInNtwk { numOrdsToGetTx = oUsed } // 5- num orderers to which to send TXs 
-        // Disable multichannel for now; just use the preset default (one):
-        // if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
+        if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
 
         // Others, which are dependent on the arguments:
         // 
@@ -495,8 +493,8 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
                         go startProducer(serverAddr, channels[c], ord, c, sendCount[ord][c])
                 }
         }
-        time.Sleep(10 * time.Second)
 
+        producers_wg.Wait()
         fmt.Println("Send Duration (seconds):  ", time.Now().Unix() - sendStart)
         recoverStart := time.Now().Unix()
 
@@ -507,11 +505,13 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         // if all consumers are no longer receiving blocks.
         // Wait and continue rechecking as necessary, as long as the delivery (recv) counters
         // are climbing closer to the broadcast (send) counter.
-
         computeTotals()
-        for !sendEqualRecv() && moreDeliveries() { time.Sleep(1 * time.Second) }
+        batchtimeout := 10
+        waitSecs := 0
+        for !sendEqualRecv() && (moreDeliveries() || waitSecs < batchtimeout) { time.Sleep(1 * time.Second); waitSecs++ }
 
         fmt.Println("Recovery Duration (secs): ", time.Now().Unix() - recoverStart)
+        fmt.Println("Wait Secs", waitSecs)
         fmt.Println("(time waiting for orderer service to finish delivering transactions, after all producers finished sending them)")
 
         successResult, resultStr = reportTotals()
@@ -532,7 +532,7 @@ func main() {
 
         fmt.Println("START: Kafka test: send 100,000 TX to 3 Orderers, using 3 kafka-brokers and ZK")
         //resKafka, resStrKafka := ote("kafka", 3, 100000, 3, 3, 1 )
-        _,_ = ote("kafka", 3, 10000, 3, 3, 1 )
+        _,_ = ote("kafka", 3, 100000, 1, 1, 1 )
 
         /*if resSolo && resKafka && resStrSolo != "" && resStrKafka != "" {
                 fmt.Println("BOTH TESTS PASSED. All done!")
