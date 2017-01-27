@@ -184,8 +184,7 @@ func executeCmdAndDisplay(cmd string) {
 }
 
 func cleanNetwork() {
-        fmt.Println("Removing all network nodes docker containers:")
-        executeCmdAndDisplay("docker ps -a")
+        //executeCmdAndDisplay("docker ps -a")
 
         // Docker is not perfect; we need to unpause any paused containers, before we can kill them.
         //_ = executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
@@ -197,11 +196,13 @@ func cleanNetwork() {
         _ = executeCmd("docker rm -f $(docker ps -aq)")
 }
 
-func launchNetwork() {
-        fmt.Println("First remove any existing containers from earlier tests")
-        cleanNetwork() {
+func launchNetwork(nOrderers int) {
         fmt.Println("Start orderer service, using docker-compose")
+        if (nOrderers == 1) {
         _ = executeCmd("docker-compose up -d")
+        } else {
+        _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
+        }
         time.Sleep(2 * time.Second)
         executeCmdAndDisplay("docker ps -a")
 }
@@ -416,7 +417,7 @@ var totalBlockRecvMismatch bool = false
 
 // return a pass/fail bool, and a result string
 func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) (successResult bool, resultStr string) {
-
+        //defer cleanNetwork()
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.Genesis.OrdererType
 
@@ -482,7 +483,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // For now, launchNetwork() uses docker-compose. later, we will need to pass args to it so it can
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
-        launchNetwork()
+        launchNetwork(oUsed)
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // start threads for a consumer to watch each channel on all (the specified number of) orderers.
@@ -491,6 +492,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         for ord := 0; ord < numOrdsToWatch; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
+                        time.Sleep(5 * time.Second)
                         go startConsumer(serverAddr, channels[c], ord, c)
                 }
         }
@@ -505,6 +507,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / int64(numProducers)
                         if c==0 && ord==0 { sendCount[ord][c] += numTxToSend % int64(numProducers) }
+                        time.Sleep(5 * time.Second)
                         go startProducer(serverAddr, channels[c], ord, c, sendCount[ord][c])
                 }
         }

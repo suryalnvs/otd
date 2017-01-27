@@ -19,6 +19,37 @@ services:
       - kafka0
       - kafka1
       - kafka2
+  orderer1:
+    image: hyperledger/fabric-orderer:x86_64-0.7.0-snapshot-f73825f
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=10
+      - ORDERER_GENESIS_ORDERERTYPE=kafka
+      - ORDERER_KAFKA_BROKERS=[kafka0:9092,kafka1:9092,kafka2:9092]
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/orderer
+    command: orderer
+    ports:
+      - '7051:7050'
+    depends_on:
+      - kafka0
+      - kafka1
+      - kafka2
+  orderer2:
+    image: hyperledger/fabric-orderer:x86_64-0.7.0-snapshot-f73825f
+    environment:
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=10
+      - ORDERER_GENESIS_ORDERERTYPE=kafka
+      - ORDERER_KAFKA_BROKERS=[kafka0:9092,kafka1:9092,kafka2:9092]
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/orderer
+    command: orderer
+    ports:
+      - '7052:7050'
+    depends_on:
+      - kafka0
+      - kafka1
+      - kafka2
+
   kafka0:
     image: hyperledger/fabric-kafka:x86_64-0.7.0-snapshot-f73825f
     environment:
