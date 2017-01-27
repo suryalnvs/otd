@@ -204,9 +204,12 @@ func launchNetwork() {
         executeCmdAndDisplay("docker ps -a")
 }
 
+func countGenesis() int64 {
+        return int64(numChannels)
+}
 func sendEqualRecv() bool {
         var matching = false;
-        if (totalTxRecv[0] == numTxToSend + int64(numChannels)) {            // recv count on orderer 0 matches the send count
+        if (totalTxRecv[0] == numTxToSend + countGenesis()) {            // recv count on orderer 0 matches the send count
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {  // all orderers have same recv count
                         matching = true
                 }
@@ -271,7 +274,7 @@ func computeTotals() {
         // e.g.    totalNumTxSent         = sum of txSent[*][*]
         // e.g.    totalNumTxSentFailures = sum of txSentFailures[*][*]
 
-        totalNumTxSent = int64(numChannels)   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
+        totalNumTxSent = countGenesis()   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
         totalNumTxSentFailures = 0
         for i := 0; i < numOrdsToGetTx; i++ {
                 for j := 0; j < numChannels; j++ {
@@ -320,6 +323,7 @@ func reportTotals() (successResult bool, resultStr string) {
                 }
         }
 
+        fmt.Println(fmt.Sprintf("Genesis block TXs (one per channel)   %9d", countGenesis()))
         fmt.Println(fmt.Sprintf("Total TX broadcasts Requested to Send %9d", numTxToSend))
         fmt.Println(fmt.Sprintf("Total TX broadcasts sentSuccessCount  %9d", totalNumTxSent))
         fmt.Println(fmt.Sprintf("Total TX broadcasts sendFailureCount  %9d BAD!", totalNumTxSentFailures))
@@ -336,27 +340,29 @@ func reportTotals() (successResult bool, resultStr string) {
         if totalBlockRecvMismatch { fmt.Println("!!!!! Num Blocks Delivered is not same on all orderers!!!!!") }
 
         // if totalTxRecv on one orderer == numTxToSend plus a genesisblock for each channel {
-        if (totalTxRecv[0] == numTxToSend + int64(numChannels)) {            // recv count on orderer 0 matches the send count
+        if totalTxRecv[0] == countGenesis() + numTxToSend {            // recv count on orderer 0 matches the send count
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
                         // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
-                        fmt.Println("\nHooray! Every TX was successfully sent AND delivered by orderer service.")
+                        fmt.Println("Hooray! Every TX was successfully sent AND delivered by orderer service.")
                         successResult = true
                         passFailStr = "PASSED"
                 } else {
-                        fmt.Println("\nOrderers were INCONSISTENT: Every TX was successfully sent AND delivered by at least one orderer -\nHOWEVER all orderers that were being watched did not deliver the same counts !!!!!")
+                        resultStr += "Orderers were INCONSISTENT: "
+                        // Every TX was successfully sent AND delivered by at least one orderer -
+                        // HOWEVER all orderers that were being watched did not deliver the same counts 
                 }
-        } else if (totalTxRecv[0] == totalNumTxSent + totalNumTxSentFailures) {
+        } else if totalTxRecv[0] == countGenesis() + totalNumTxSent + totalNumTxSentFailures {
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
-                        fmt.Println("\nGood (but not perfect)! Every TX that was acknowledged by orderer service was also successfully delivered.")
+                        resultStr += "Every ACked TX was delivered, but NACKs occurred: "
                 } else {
-                        fmt.Println("\nGood (but not perfect) - and the Orderers were INCONSISTENT! Every TX that was acknowledged AND delivered by at least one orderer -\nHOWEVER all orderers that were being watched did not deliver the same counts !!!!!")
+                        resultStr += "Orderers were INCONSISTENT: Every ACked TX was delivered, but NACKs occurred: "
                 }
         } else {
-                fmt.Println("\nBOO! Some acknowledged TX were LOST by orderer service!")
+                resultStr += "BAD! Some ACKed TX were LOST by orderer service! "
         }
 
         // print output result and counts : overall summary
-        resultStr = fmt.Sprint("%s, TX Req=%d SendSuccess=%d SendFail=%d DelivBlock=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
+        resultStr += fmt.Sprint("Result=%s: TX Req=%d BrdcstACK=%d BrdcstNACK=%d DelivBlk=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
         fmt.Println(resultStr)
 
         return successResult, resultStr
@@ -404,7 +410,7 @@ var totalTxRecv    []int64          // total TXs received by all consumers on an
 var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
 
-// return a pass/fail bool, and-or a string?
+// return a pass/fail bool, and a result string
 func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) (successResult bool, resultStr string) {
 
         config := config.Load()  // establish the default configuration from yaml files
