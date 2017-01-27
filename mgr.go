@@ -99,7 +99,7 @@ func (r *ordererdriveClient) seek(blockNumber uint64) error {
         return r.client.Send(seekHelper(r.chainID, &ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: blockNumber}}}))
 }
 
-func (r *ordererdriveClient) readUntilClose(ordererNumber int, consumerNumber int) {
+func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int) {
         for {
                 msg, err := r.client.Recv()
                 if err != nil {
@@ -112,9 +112,9 @@ func (r *ordererdriveClient) readUntilClose(ordererNumber int, consumerNumber in
                         fmt.Println("Got status ", t)
                         return
                 case *ab.DeliverResponse_Block:
-                        txRecv[ordererNumber][consumerNumber] += int64(len(t.Block.Data.Data))
-                        blockRecv[ordererNumber][consumerNumber] = int64(t.Block.Header.Number)
-                        //fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererNumber][consumerNumber])
+                        txRecv[ordererIndex][channelIndex] += int64(len(t.Block.Data.Data))
+                        blockRecv[ordererIndex][channelIndex] = int64(t.Block.Header.Number)
+                        //fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererIndex][channelIndex])
                 }
         }
 }
@@ -146,7 +146,7 @@ func (b *broadcastClient) getAck() error {
        return nil
 }
 
-func startConsumer(serverAddr string, chainID string, ordererNumber int, consumerNumber int) {
+func startConsumer(serverAddr string, chainID string, ordererIndex int, channelIndex int) {
 
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         if err != nil {
@@ -166,7 +166,7 @@ func startConsumer(serverAddr string, chainID string, ordererNumber int, consume
         } else {
                 fmt.Println("Received error starting new consumer; err:", err)
         }
-        s.readUntilClose(ordererNumber, consumerNumber)
+        s.readUntilClose(ordererIndex, channelIndex)
 }
 
 func executeCmd(cmd string) []byte {
@@ -306,14 +306,14 @@ func reportTotals() (successResult bool, resultStr string) {
         successResult = false
         resultStr = ""
 
-        // for each producer print the ordererNumber & channel, the TX requested to be sent, the actual num sent and num failed-to-send
+        // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
         for i := 0; i < numOrdsToGetTx; i++ {
                 for j := 0; j < numChannels; j++ {
                         fmt.Println("PRODUCER for o",i,"c",j," TX Requested:",sendCount[i][j]," TX Send ACKs:",txSent[i][j]," TX Send NACKs:",txSentFailures[i][j])
                 }
         }
 
-        // for each consumer print the ordererNumber & channel, the num blocks and the num transactions received/delivered
+        // for each consumer print the ordererIndex & channel, the num blocks and the num transactions received/delivered
         for k := 0; k < numOrdsToWatch; k++ {
                 for l := 0; l < numChannels; l++ {
                         fmt.Println("CONSUMER for o",k,"c",l," Blocks:",blockRecv[k][l]," Transactions:",txRecv[k][l])
