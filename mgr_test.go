@@ -17,7 +17,10 @@ limitations under the License.
 
 package ote        // Orderer Test Engine
 
-import ( "fmt" )
+import (
+        "fmt"
+        "testing"
+)
 
 
 // input args:  ote ( ordererType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int )
@@ -26,18 +29,18 @@ import ( "fmt" )
 
 
 /*
-func Test_Solo_100000TX_1ch() {
+func Test_Solo_100000TX_1ch(t *testing.T) {
         fmt.Println("START: Solo test: send 100,000 TX")
         _, _ := ote("solo", 0, 100000, 1, 1, 1 )
 }
 */
 
-func Test_kafka_3KBs_100000TX_1of1ord_1ch() {
+func Test_kafka_3KBs_100000TX_1of1ord_1ch(t *testing.T) {
         fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 1 of a network of 1 Orderers, using 1 channel")
         _,_:= ote("kafka", 3, 100000, 1, 1, 1 )
 }
 
-func Test_kafka_3KBs_100000TX_3of3ord_1ch() {
+func Test_kafka_3KBs_100000TX_3of3ord_1ch(t *testing.T) {
         fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 3 of a network of 3 Orderers, using 1 channel")
         _,_ = ote("kafka", 3, 100000, 3, 3, 1 )
 }
