@@ -198,6 +198,8 @@ func cleanNetwork() {
 }
 
 func launchNetwork() {
+        fmt.Println("First remove any existing containers from earlier tests")
+        cleanNetwork() {
         fmt.Println("Start orderer service, using docker-compose")
         _ = executeCmd("docker-compose up -d")
         time.Sleep(2 * time.Second)
@@ -362,7 +364,7 @@ func reportTotals() (successResult bool, resultStr string) {
         }
 
         // print output result and counts : overall summary
-        resultStr += fmt.Sprint("Result=%s: TX Req=%d BrdcstACK=%d BrdcstNACK=%d DelivBlk=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
+        resultStr += fmt.Sprintf("Result=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d", passFailStr, numTxToSend, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
         fmt.Println(resultStr)
 
         return successResult, resultStr
