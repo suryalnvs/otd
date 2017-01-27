@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package ote
 
 // Orderer Test Engine
 // ===================
@@ -422,11 +422,11 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
 
         if txs > 0                { numTxToSend = txs   }     // 3- total number of Transactions to send
         if oInNtwk > 0            { numOrdsInNtwk = oInNtwk } // 4- num orderers in network
-        if oUsed > 0 && oUsed <= numOrdsInNtwk { numOrdsToGetTx = oUsed } // 5- num orderers to which to send TXs 
+        if oUsed > 0 && oUsed <= numOrdsInNtwk { numOrdsToGetTx = oUsed } // 5- num orderers to which to send TXs
         if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
 
         // Others, which are dependent on the arguments:
-        // 
+        //
         numProducers = numOrdsToGetTx * numChannels           // determined by (5)x(6)
         numConsumers = numChannels * numOrdsInNtwk            // determined by (6)x(4) - when using all orderers
 
@@ -438,11 +438,11 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
 
         channels = make([]string, numChannels)     // create a counter for each of the channels
-        for c:=0; c < numChannels; c++ { 
+        for c:=0; c < numChannels; c++ {
                // channels[c] = fmt.Sprintf("testchan_%05d", c)
                // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
                // (We cannot just make up names; instead we must ensure the IDs are the same ones
-               // added/created in the launched network itself). 
+               // added/created in the launched network itself).
                // And for now we support only one channel.
                // That is all that will make sense numerically, since any consumers for multiple channels
                // on a single orderer would see duplicates since they are arriving with the same TestChainID.
@@ -526,19 +526,3 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         return successResult, resultStr
 }
 
-
-func main() {
-
-        // input args:  ote ( ordererType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int )
-        // outputs:     lots of counters!
-        // returns:     finalPassFailResult, finalResultString
-
-        //fmt.Println("START: Solo test: send 100,000 TX")
-        //_, _ := ote("solo", 0, 100000, 1, 1, 1 )
-
-        //fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 1 in a network of 1 Orderers, using 1 channel")
-        //_,_:= ote("kafka", 3, 100000, 1, 1, 1 )
-
-        fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 3 in a network of 3 Orderers, using 1 channel")
-        _,_ = ote("kafka", 3, 100000, 3, 3, 1 )
-}
