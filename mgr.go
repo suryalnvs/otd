@@ -58,14 +58,14 @@ type ordererdriveClient struct {
         chainID string
 }
 type broadcastClient struct {
-	      client  ab.AtomicBroadcast_BroadcastClient
-	      chainID string
+        client  ab.AtomicBroadcast_BroadcastClient
+        chainID string
 }
 func newOrdererdriveClient(client ab.AtomicBroadcast_DeliverClient, chainID string) *ordererdriveClient {
         return &ordererdriveClient{client: client, chainID: chainID}
 }
 func newBroadcastClient(client ab.AtomicBroadcast_BroadcastClient, chainID string) *broadcastClient {
-	      return &broadcastClient{client: client, chainID: chainID}
+        return &broadcastClient{client: client, chainID: chainID}
 }
 
 func seekHelper(chainID string, start *ab.SeekPosition) *cb.Envelope {
@@ -114,36 +114,36 @@ func (r *ordererdriveClient) readUntilClose(ordererNumber int, consumerNumber in
                 case *ab.DeliverResponse_Block:
                         txRecv[ordererNumber][consumerNumber] += int64(len(t.Block.Data.Data))
                         blockRecv[ordererNumber][consumerNumber] = int64(t.Block.Header.Number)
-			                  //fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererNumber][consumerNumber])
+                        //fmt.Println("Received block number: ", t.Block.Header.Number, " Transactions of the block: ", len(t.Block.Data.Data), "Total Transactions: ", txRecv[ordererNumber][consumerNumber])
                 }
         }
 }
 
 func (b *broadcastClient) broadcast(transaction []byte) error {
-	     payload, err := proto.Marshal(&cb.Payload{
-		      Header: &cb.Header{
-			       ChainHeader: &cb.ChainHeader{
-				     ChainID: b.chainID,
-			       },
-			       SignatureHeader: &cb.SignatureHeader{},
-		      },
-		      Data: transaction,
-	     })
-	     if err != nil {
-		      panic(err)
-	     }
-	     return b.client.Send(&cb.Envelope{Payload: payload})
+        payload, err := proto.Marshal(&cb.Payload{
+                Header: &cb.Header{
+                        ChainHeader: &cb.ChainHeader{
+                                ChainID: b.chainID,
+                        },
+                        SignatureHeader: &cb.SignatureHeader{},
+                },
+                Data: transaction,
+        })
+        if err != nil {
+                panic(err)
+        }
+        return b.client.Send(&cb.Envelope{Payload: payload})
 }
 
 func (b *broadcastClient) getAck() error {
-	     msg, err := b.client.Recv()
+       msg, err := b.client.Recv()
        if err != nil {
-		      return err
-	     }
-	     if msg.Status != cb.Status_SUCCESS {
-		      return fmt.Errorf("Got unexpected status: %v", msg.Status)
-	     }
-	     return nil
+               return err
+       }
+       if msg.Status != cb.Status_SUCCESS {
+               return fmt.Errorf("Got unexpected status: %v", msg.Status)
+       }
+       return nil
 }
 
 func startConsumer(serverAddr string, chainID string, ordererNumber int, consumerNumber int) {
@@ -175,7 +175,7 @@ func executeCmd(cmd string) []byte {
                 fmt.Println("unsuccessful exec command: "+cmd+"\nstdout="+string(out)+"\nstderr=", err)
                 log.Fatal(err)
         }
-	return out
+        return out
 }
 
 func executeCmdAndDisplay(cmd string) {
@@ -230,74 +230,74 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
           _ = conn.Close()
         }()
         if err != nil {
-           fmt.Println("Error connecting:", err)
-           return
+                fmt.Println("Error connecting:", err)
+                return
         }
         client, err := ab.NewAtomicBroadcastClient(conn).Broadcast(context.TODO())
         if err != nil {
-           fmt.Println("Error connecting:", err)
-           return
+                fmt.Println("Error connecting:", err)
+                return
         }
 
-     //return newBroadcastClient(client, chainID)
+        //return newBroadcastClient(client, chainID)
         b := newBroadcastClient(client, chainID)
         //var counter int64
 
         for i := int64(0); i < txReq ; i++ {
-           b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
-           err = b.getAck()
-           if err == nil {
-             txSent [ordererIndex][channelIndex] ++
-           } else {
-             txSentFailures [ordererIndex][channelIndex] ++
-           }
+                b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
+                err = b.getAck()
+                if err == nil {
+                        txSent [ordererIndex][channelIndex] ++
+                } else {
+                        txSentFailures [ordererIndex][channelIndex] ++
+                }
         }
         if err != nil {
-           fmt.Printf("\nError: %v\n", err)
+                fmt.Printf("\nError: %v\n", err)
         }
         if txReq == txSent[ordererIndex][channelIndex] {
-           fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
         } else {
-           fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
-           fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg NACKs %9d", ordererIndex, channelIndex, txSentFailures[ordererIndex][channelIndex]))
-           fmt.Println(fmt.Sprintf("Total o%dc%d broadcasts - others %9d", ordererIndex, channelIndex, txReq - txSentFailures[ordererIndex][channelIndex] - txSent[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg NACKs %9d", ordererIndex, channelIndex, txSentFailures[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total o%dc%d broadcasts - others %9d", ordererIndex, channelIndex, txReq - txSentFailures[ordererIndex][channelIndex] - txSent[ordererIndex][channelIndex]))
         }
         producers_wg.Done()
 }
 
 func computeTotals() {
-  // Counters for producers are indexed by orderer (numOrdsToGetTx) and channel (numChannels)
-  // All counters for all the channels on ALL orderers is the total count.
-  // e.g.    totalNumTxSent         = sum of txSent[*][*]
-  // e.g.    totalNumTxSentFailures = sum of txSentFailures[*][*]
+        // Counters for producers are indexed by orderer (numOrdsToGetTx) and channel (numChannels)
+        // All counters for all the channels on ALL orderers is the total count.
+        // e.g.    totalNumTxSent         = sum of txSent[*][*]
+        // e.g.    totalNumTxSentFailures = sum of txSentFailures[*][*]
 
-  totalNumTxSent = int64(numChannels)   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
-  totalNumTxSentFailures = 0
-  for i := 0; i < numOrdsToGetTx; i++ {
-    for j := 0; j < numChannels; j++ {
-      totalNumTxSent += txSent[i][j]
-      totalNumTxSentFailures += txSentFailures[i][j]
-    }
-  }
+        totalNumTxSent = int64(numChannels)   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
+        totalNumTxSentFailures = 0
+        for i := 0; i < numOrdsToGetTx; i++ {
+                for j := 0; j < numChannels; j++ {
+                        totalNumTxSent += txSent[i][j]
+                        totalNumTxSentFailures += txSentFailures[i][j]
+                }
+        }
 
-  // Counters for consumers are indexed by orderer (numOrdsToWatch) and channel (numChannels).
-  // All counters for all the channels on JUST ONE orderer is the total count.
-  // Tally up the totals for all orderers, and store them for comparison; they should all be the same.
-  // e.g.    totalTxRecv[k]    = sum of txRecv[k][*]
-  // e.g.    totalBlockRecv[k] = sum of blockRecv[k][*]
+        // Counters for consumers are indexed by orderer (numOrdsToWatch) and channel (numChannels).
+        // All counters for all the channels on JUST ONE orderer is the total count.
+        // Tally up the totals for all orderers, and store them for comparison; they should all be the same.
+        // e.g.    totalTxRecv[k]    = sum of txRecv[k][*]
+        // e.g.    totalBlockRecv[k] = sum of blockRecv[k][*]
 
-  totalTxRecvMismatch = false
-  totalBlockRecvMismatch = false
-  for k := 0; k < numOrdsToWatch; k++ {
-    totalTxRecv[k] = 0
-    totalBlockRecv[k] = 0
-    for l := 0; l < numChannels; l++ {
-      totalTxRecv[k] += txRecv[k][l]
-      totalBlockRecv[k] += blockRecv[k][l]
-    }
-    if (k>0) && (totalTxRecv[k] != totalTxRecv[k-1]) { totalTxRecvMismatch = true }
-    if (k>0) && (totalBlockRecv[k] != totalBlockRecv[k-1]) { totalBlockRecvMismatch = true }
-  }
+        totalTxRecvMismatch = false
+        totalBlockRecvMismatch = false
+        for k := 0; k < numOrdsToWatch; k++ {
+                totalTxRecv[k] = 0
+                totalBlockRecv[k] = 0
+                for l := 0; l < numChannels; l++ {
+                        totalTxRecv[k] += txRecv[k][l]
+                        totalBlockRecv[k] += blockRecv[k][l]
+                }
+                if (k>0) && (totalTxRecv[k] != totalTxRecv[k-1]) { totalTxRecvMismatch = true }
+                if (k>0) && (totalBlockRecv[k] != totalBlockRecv[k-1]) { totalBlockRecvMismatch = true }
+        }
 }
 
 func reportTotals() (successResult bool, resultStr string) {
@@ -405,13 +405,13 @@ var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
 
 // return a pass/fail bool, and-or a string?
-func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) (successResult bool, resultStr string) {
+func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) (successResult bool, resultStr string) {
 
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.Genesis.OrdererType
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-	// Check parameters and/or env vars to see if user wishes to override default config parms:
+        // Check parameters and/or env vars to see if user wishes to override default config parms:
 
         // Arguments to override configuration parameter values in yaml file:
 
@@ -436,11 +436,16 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Create the 1D slice of channel IDs, and create names for them which we will use
         // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
-        // TODO - how do we ensure these are the same ones added/created in the launched network itself ???
 
         channels = make([]string, numChannels)     // create a counter for each of the channels
         for c:=0; c < numChannels; c++ { 
                // channels[c] = fmt.Sprintf("testchan_%05d", c)
+               // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
+               // (We cannot just make up names; instead we must ensure the IDs are the same ones
+               // added/created in the launched network itself). 
+               // And for now we support only one channel.
+               // That is all that will make sense numerically, since any consumers for multiple channels
+               // on a single orderer would see duplicates since they are arriving with the same TestChainID.
                channels[c] = provisional.TestChainID
         }
 
@@ -524,19 +529,16 @@ func ote( oType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int ) 
 
 func main() {
 
-        // input args:  ote ( ordererType string, kbs int, txs int64, oInNtwk int, oUsed int, chans int )
-        // outputs:     finalPassFailResult, finalResultString
+        // input args:  ote ( ordererType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int )
+        // outputs:     lots of counters!
+        // returns:     finalPassFailResult, finalResultString
 
         //fmt.Println("START: Solo test: send 100,000 TX")
-        //resSolo, resStrSolo := ote("solo", 0, 100000, 1, 1, 1 )
+        //_, _ := ote("solo", 0, 100000, 1, 1, 1 )
 
-        fmt.Println("START: Kafka test: send 100,000 TX to 3 Orderers, using 3 kafka-brokers and ZK")
-        //resKafka, resStrKafka := ote("kafka", 3, 100000, 3, 3, 1 )
-        _,_ = ote("kafka", 3, 100000, 1, 1, 1 )
+        //fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 1 in a network of 1 Orderers, using 1 channel")
+        //_,_:= ote("kafka", 3, 100000, 1, 1, 1 )
 
-        /*if resSolo && resKafka && resStrSolo != "" && resStrKafka != "" {
-                fmt.Println("BOTH TESTS PASSED. All done!")
-        } else {
-                fmt.Println("Something went wrong. Finished.")
-        }*/
+        fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 3 in a network of 3 Orderers, using 1 channel")
+        _,_ = ote("kafka", 3, 100000, 3, 3, 1 )
 }
