@@ -261,11 +261,9 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
                 fmt.Printf("\nError: %v\n", err)
         }
         if txReq == txSent[ordererIndex][channelIndex] {
-                fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total ord %d ch %d broadcast msg ACKs  %9d  (100%)", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
         } else {
-                fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg ACKs  %9d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
-                fmt.Println(fmt.Sprintf("Total o%dc%d broadcast msg NACKs %9d", ordererIndex, channelIndex, txSentFailures[ordererIndex][channelIndex]))
-                fmt.Println(fmt.Sprintf("Total o%dc%d broadcasts - others %9d", ordererIndex, channelIndex, txReq - txSentFailures[ordererIndex][channelIndex] - txSent[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total ord %d ch %d broadcast msg ACKs  %9d  NACK %d  Other %d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex], txSentFailures[ordererIndex][channelIndex], txReq - txSentFailures[ordererIndex][channelIndex] - txSent[ordererIndex][channelIndex]))
         }
         producers_wg.Done()
 }
@@ -312,26 +310,30 @@ func reportTotals() (successResult bool, resultStr string) {
         resultStr = ""
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
+        fmt.Println("PRODUCERS      Orderer     Channel   TX Target         ACK        NACK")
         for i := 0; i < numOrdsToGetTx; i++ {
                 for j := 0; j < numChannels; j++ {
-                        fmt.Println("PRODUCER for o",i,"c",j," TX Requested:",sendCount[i][j]," TX Send ACKs:",txSent[i][j]," TX Send NACKs:",txSentFailures[i][j])
+                        //fmt.Println("PRODUCER for ord",i,"ch",j," TX Requested:",sendCount[i][j]," TX Send ACKs:",txSent[i][j]," TX Send NACKs:",txSentFailures[i][j])
+                        fmt.Println(fmt.Sprintf("%22d%12d%12d%12d%12d",i,j,sendCount[i][j],txSent[i][j],txSentFailures[i][j]))
                 }
         }
 
         // for each consumer print the ordererIndex & channel, the num blocks and the num transactions received/delivered
+        fmt.Println("CONSUMERS      Orderer     Channel     Batches         TXs")
         for k := 0; k < numOrdsToWatch; k++ {
                 for l := 0; l < numChannels; l++ {
-                        fmt.Println("CONSUMER for o",k,"c",l," Blocks:",blockRecv[k][l]," Transactions:",txRecv[k][l])
+                        //fmt.Println("CONSUMER for ord",k,"ch",l," Blocks:",blockRecv[k][l]," Transactions:",txRecv[k][l])
+                        fmt.Println(fmt.Sprintf("%22d%12d%12d%12d",k,l,blockRecv[k][l],txRecv[k][l]))
                 }
         }
 
         fmt.Println(fmt.Sprintf("Genesis block TXs (one per channel)   %9d", countGenesis()))
         fmt.Println(fmt.Sprintf("Total TX broadcasts Requested to Send %9d", numTxToSend))
-        fmt.Println(fmt.Sprintf("Total TX broadcasts sentSuccessCount  %9d", totalNumTxSent))
-        fmt.Println(fmt.Sprintf("Total TX broadcasts sendFailureCount  %9d BAD!", totalNumTxSentFailures))
+        fmt.Println(fmt.Sprintf("Total TX broadcasts send success ACK  %9d", totalNumTxSent))
+        fmt.Println(fmt.Sprintf("Total TX broadcasts sendFailed - NACK %9d", totalNumTxSentFailures))
         fmt.Println(fmt.Sprintf("Total deliveries Received TX Count    %9d", totalTxRecv[0]))
         fmt.Println(fmt.Sprintf("Total deliveries Received Blocks      %9d", totalBlockRecv[0]))
-        fmt.Println(fmt.Sprintf("Total LOST transactions               %9d BAD!!!", totalTxRecv[0] - totalNumTxSent - totalNumTxSentFailures))
+        fmt.Println(fmt.Sprintf("Total LOST transactions               %9d", totalTxRecv[0] - totalNumTxSent - totalNumTxSentFailures))
 
         // Check for differences on the deliveries from the orderers. These are probably errors -
         // unless the test stopped an orderer on purpose and never restarted it, while the
@@ -524,7 +526,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         for !sendEqualRecv() && (moreDeliveries() || waitSecs < batchtimeout) { time.Sleep(1 * time.Second); waitSecs++ }
 
         fmt.Println("Recovery Duration (secs): ", time.Now().Unix() - recoverStart)
-        fmt.Println("Wait Secs", waitSecs)
+        fmt.Println("waitSecs for last batch:  ", waitSecs)
         fmt.Println("(time waiting for orderer service to finish delivering transactions, after all producers finished sending them)")
 
         successResult, resultStr = reportTotals()
