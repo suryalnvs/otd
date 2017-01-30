@@ -14,21 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ote        // Orderer Test Engine
+package main
 
 import (
-        "fmt"
         "testing"
-        //"time"
 )
 
 
 // input args:  ote ( ordererType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int )
 // outputs:     print report to stdout with lots of counters!
 // returns:     finalPassFailResult, finalResultSummaryString
-func Test_kafka_3KBs_100000TX_1of1ord_1ch(t *testing.T) {
-        fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 1 of a network of 1 Orderers, using 1 channel")
-        passResult, finalResultSummaryString := ote("kafka", 3, 100000, 1, 1, 1 )
+func Test_100000TX_1chan_1ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(100000, 1, 1, "kafka", 3)
         if !passResult { t.Error(finalResultSummaryString) }
         //cleanNetwork()
 }

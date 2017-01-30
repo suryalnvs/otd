@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ote        // Orderer Test Engine
+package main
 
 import (
-        "fmt"
         "testing"
-        //"time"
 )
 
 
@@ -27,10 +25,8 @@ import (
 // outputs:     print report to stdout with lots of counters!
 // returns:     finalPassFailResult, finalResultSummaryString
 
-func Test_kafka_3KBs_100000TX_3of3ord_1ch(t *testing.T) {
-        //time.Sleep(10 * time.Second)
-        fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 3 of a network of 3 Orderers, using 1 channel")
-        passResult, finalResultSummaryString := ote("kafka", 3, 100000, 3, 3, 1 )
+func Test_100000TX_1chan_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(100000, 1, 3, "kafka", 3)
         if !passResult { t.Error(finalResultSummaryString) }
         //cleanNetwork()
 }

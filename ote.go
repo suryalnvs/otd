@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ote
+package main
 
 // Orderer Test Engine
 // ===================
@@ -26,7 +26,6 @@ package ote
 // + create producers to send/broadcast msgs to the orderers, concurrently
 // + create consumers to invoke deliver on the orderers to receive msgs
 // + use parameters for specifying number of channels, number of orderers
-//   to which to broadcast transactions, etc
 // + generate transactions, dividing up the requested TX count among
 //   all the channels on the orderers requested, and counts them all
 // + confirm all the orderers deliver the same blocks and transactions
@@ -35,8 +34,10 @@ package ote
 // + return a pass/fail result
 
 import (
-        //"flag"
         "fmt"
+        "os"
+        "strings"
+        "strconv"
         "math"
         "os/exec"
         "log"
@@ -262,7 +263,7 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
                 fmt.Printf("\nError: %v\n", err)
         }
         if txReq == txSent[ordererIndex][channelIndex] {
-                fmt.Println(fmt.Sprintf("Total ord %d ch %d broadcast msg ACKs  %9d  (100%)", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
+                fmt.Println(fmt.Sprintf("Total ord %d ch %d broadcast msg ACKs  %9d  (100%%)", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex]))
         } else {
                 fmt.Println(fmt.Sprintf("Total ord %d ch %d broadcast msg ACKs  %9d  NACK %d  Other %d", ordererIndex, channelIndex, txSent[ordererIndex][channelIndex], txSentFailures[ordererIndex][channelIndex], txReq - txSentFailures[ordererIndex][channelIndex] - txSent[ordererIndex][channelIndex]))
         }
@@ -270,14 +271,14 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
 }
 
 func computeTotals() {
-        // Counters for producers are indexed by orderer (numOrdsToGetTx) and channel (numChannels)
+        // Counters for producers are indexed by orderer (numOrdsInNtwk) and channel (numChannels)
         // All counters for all the channels on ALL orderers is the total count.
         // e.g.    totalNumTxSent         = sum of txSent[*][*]
         // e.g.    totalNumTxSentFailures = sum of txSentFailures[*][*]
 
         totalNumTxSent = countGenesis()   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
         totalNumTxSentFailures = 0
-        for i := 0; i < numOrdsToGetTx; i++ {
+        for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
                         totalNumTxSent += txSent[i][j]
                         totalNumTxSentFailures += txSentFailures[i][j]
@@ -312,7 +313,7 @@ func reportTotals() (successResult bool, resultStr string) {
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
         fmt.Println("PRODUCERS      Orderer     Channel   TX Target         ACK        NACK")
-        for i := 0; i < numOrdsToGetTx; i++ {
+        for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
                         //fmt.Println("PRODUCER for ord",i,"ch",j," TX Requested:",sendCount[i][j]," TX Send ACKs:",txSent[i][j]," TX Send NACKs:",txSentFailures[i][j])
                         fmt.Println(fmt.Sprintf("%22d%12d%12d%12d%12d",i,j,sendCount[i][j],txSent[i][j],txSentFailures[i][j]))
@@ -380,19 +381,18 @@ var channels []string
 var numChannels int = 1
 var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
 var numOrdsToWatch int = 1              // default set to 1; we must watch at least one orderer
-var numOrdsToGetTx int = 1              // default; the testcase may override this with the number of orderers to recv TXs
 var ordererType string = "solo"         // default; the testcase may override this
 var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
 var numConsumers int = 1                // default; this will be set based on other testcase parameters
 var numProducers int = 1                // default; this will be set based on other testcase parameters
 
 // numTxToSend is the total number of Transactions to send;
-// A fraction will be sent by each producer - one producer for each channel for each numOrdsToGetTx
+// A fraction will be sent by each producer - one producer for each channel for each numOrdsInNtwk
 var numTxToSend            int64 = 1    // default; the testcase may override this
 
 // Each producer sends TXs to one channel on one orderer, and increments its own counters for
 // the successfully sent Tx, and the send-failures (rejected/timeout).
-// These 2D arrays are indexed by dimensions: numOrdsToGetTx and numChannels
+// These 2D arrays are indexed by dimensions: numOrdsInNtwk and numChannels
 
 var sendCount          [][]int64       // counter of TX to be sent
 var txSent             [][]int64       // TX sendSuccesses on ord[]channel[]
@@ -415,8 +415,13 @@ var totalTxRecv    []int64          // total TXs received by all consumers on an
 var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
 
-// return a pass/fail bool, and a result string
-func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) (successResult bool, resultStr string) {
+
+// outputs:     print report to stdout with lots of counters
+// returns:     passed bool, resultSummary string
+func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed bool, resultSummary string) {
+        testformat := fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d", txs, chans, orderers, ordType, kbs)
+        fmt.Println("OTE Test args: ", testformat)
+
         //defer cleanNetwork()
         config := config.Load()  // establish the default configuration from yaml files
         ordererType = config.Genesis.OrdererType
@@ -426,20 +431,19 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
 
         // Arguments to override configuration parameter values in yaml file:
 
-        if oType != "default"     { ordererType = oType }     // 1- ordererType (solo, kafka, sbft, ...)
+        if ordType != "default"     { ordererType = ordType } // 1- ordererType (solo, kafka, sbft, ...)
         if ordererType == "kafka" { numKBrokers = kbs   }     // 2- num kafka-brokers
 
         // Arguments for OTE settings for test variations:
 
         if txs > 0                { numTxToSend = txs   }     // 3- total number of Transactions to send
-        if oInNtwk > 0            { numOrdsInNtwk = oInNtwk } // 4- num orderers in network
-        if oUsed > 0 && oUsed <= numOrdsInNtwk { numOrdsToGetTx = oUsed } // 5- num orderers to which to send TXs
-        if chans > 0              { numChannels = chans }     // 6- num channels to use; Tx will be sent to all channels equally
+        if orderers > 0           { numOrdsInNtwk = orderers }// 4- num orderers in network
+        if chans > 0              { numChannels = chans }     // 5- num channels to use; Tx will be sent to all channels equally
 
         // Others, which are dependent on the arguments:
         //
-        numProducers = numOrdsToGetTx * numChannels           // determined by (5)x(6)
-        numConsumers = numChannels * numOrdsInNtwk            // determined by (6)x(4) - when using all orderers
+        numProducers = numOrdsInNtwk * numChannels            // determined by (4)x(5)
+        numConsumers = numOrdsInNtwk * numChannels            // determined by (4)x(5)
 
         numOrdsToWatch = numOrdsInNtwk  // we could assign a value more than one, and watch every orderer -
                                         // to verify they are all delivering the same
@@ -463,7 +467,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Create the 1D and 2D slices of counters for the producers and consumers. All are initialized to zero.
 
-        for i := 0; i < numOrdsToGetTx; i++ {  // for all orderers to which we will be sending transactions
+        for i := 0; i < numOrdsInNtwk; i++ {                    // for all orderers
                 sendPassCntrs := make([]int64, numChannels)     // create a counter for all the channels on one orderer
                 txSent = append(txSent, sendPassCntrs)          // orderer-i gets a set
                 sendFailCntrs := make([]int64, numChannels)     // create a counter for all the channels on one orderer
@@ -483,7 +487,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // For now, launchNetwork() uses docker-compose. later, we will need to pass args to it so it can
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
-        launchNetwork(oUsed)
+        launchNetwork(numOrdsInNtwk)
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // start threads for a consumer to watch each channel on all (the specified number of) orderers.
@@ -502,7 +506,7 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         // we can start clients which will broadcast the specified number of msgs to their associated orderers
         sendStart := time.Now().Unix()
         producers_wg.Add(numProducers)
-        for ord := 0; ord < numOrdsToGetTx; ord++ {
+        for ord := 0; ord < numOrdsInNtwk; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / int64(numProducers)
@@ -532,10 +536,46 @@ func ote( oType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int ) 
         fmt.Println("waitSecs for last batch:  ", waitSecs)
         fmt.Println("(time waiting for orderer service to finish delivering transactions, after all producers finished sending them)")
 
-        successResult, resultStr = reportTotals()
+        passed, resultSummary = reportTotals()
 
         //cleanNetwork()
 
-        return successResult, resultStr
+        return passed, resultSummary
+}
+
+
+func main() {
+
+        // Set reasonable defaults in case any env vars are unset.
+        var txs int64 = 10
+        chans    := 1
+        orderers := 1
+        ordType  := "kafka"
+        kbs      := 3
+
+        // Read env vars
+
+        envvar := strings.TrimSpace(strings.ToUpper(os.Getenv("OTE_TXS")))
+        if envvar != "" { txs, _ = strconv.ParseInt(envvar, 10, 64) }
+        fmt.Println("OTE_TXS=",envvar, " , txs=",txs)
+
+        envvar = strings.TrimSpace(strings.ToUpper(os.Getenv("OTE_CHANNELS")))
+        if envvar != "" { chans, _ = strconv.Atoi(envvar) }
+        fmt.Println("OTE_CHANNELS=",envvar, " , chans=",chans)
+
+        envvar = strings.TrimSpace(strings.ToUpper(os.Getenv("OTE_ORDERERS")))
+        if envvar != "" { orderers, _ = strconv.Atoi(envvar) }
+        fmt.Println("OTE_ORDERERS=",envvar, " , orderers=",orderers)
+
+        envvar = strings.TrimSpace(strings.ToUpper(os.Getenv("ORDERER_GENESIS_ORDERERTYPE")))
+        if envvar != "" { ordType = envvar }
+        fmt.Println("ORDERER_GENESIS_ORDERERTYPE=",envvar, " , ordType=",ordType)
+
+        envvar = strings.TrimSpace(strings.ToUpper(os.Getenv("OTE_KAFKABROKERS")))
+        if envvar != "" { kbs, _ = strconv.Atoi(envvar) }
+        fmt.Println("OTE_KAFKABROKERS=",envvar, " , kbs=",kbs)
+
+        _, resultStr := ote( txs, chans, orderers, ordType, kbs )
+        fmt.Println(resultStr)
 }
 
