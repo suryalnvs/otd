@@ -18,6 +18,7 @@ package main
 
 import (
         "testing"
+        "fmt"
 )
 
 
@@ -26,8 +27,8 @@ import (
 // returns:     finalPassFailResult, finalResultSummaryString
 
 func Test_100000TX_1chan_3ord_kafka_3kbs(t *testing.T) {
+        fmt.Println("Start test Test_100000TX_1chan_3ord_kafka_3kbs")
         passResult, finalResultSummaryString := ote(100000, 1, 3, "kafka", 3)
         if !passResult { t.Error(finalResultSummaryString) }
-        //cleanNetwork()
 }
 

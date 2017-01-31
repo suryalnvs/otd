@@ -39,14 +39,16 @@ func Test_100TX_1ch_1ord_Solo(t *testing.T) {
 
 
 func Test_100000TX_1ch_1ord_kafka_3kbrokers(t *testing.T) {
+        fmt.Println("Start ote_test Test_100000TX_1ch_1ord_kafka_3kbrokers")
         fmt.Println("Send 100,000 TX on 1 channel to 1 orderers of type kafka using 3 kafka-brokers")
-       // passResult, finalResultSummaryString := ote(100000, 1, 1, "kafka", 3 )
-       // if !passResult { t.Error(finalResultSummaryString) }
+        passResult, finalResultSummaryString := ote(100000, 1, 1, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
 }
 
 func Test_100000TX_1ch_3ord_kafka_3kbrokers(t *testing.T) {
+        fmt.Println("Start ote_test Test_100000TX_1ch_3ord_kafka_3kbrokers")
         fmt.Println("Send 100,000 TX on 1 channel to 3 orderers of type kafka using 3 kafka-brokers")
-       // passResult, finalResultSummaryString := ote(100000, 1, 3, "kafka", 3 )
-       // if !passResult { t.Error(finalResultSummaryString) }
+        passResult, finalResultSummaryString := ote(100000, 1, 3, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
 }
 

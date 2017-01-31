@@ -18,6 +18,7 @@ package main
 
 import (
         "testing"
+        "fmt"
 )
 
 
@@ -25,8 +26,8 @@ import (
 // outputs:     print report to stdout with lots of counters!
 // returns:     finalPassFailResult, finalResultSummaryString
 func Test_100000TX_1chan_1ord_kafka_3kbs(t *testing.T) {
+        fmt.Println("Start test Test_100000TX_1chan_1ord_kafka_3kbs")
         passResult, finalResultSummaryString := ote(100000, 1, 1, "kafka", 3)
         if !passResult { t.Error(finalResultSummaryString) }
-        //cleanNetwork()
 }
 
