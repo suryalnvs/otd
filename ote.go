@@ -284,7 +284,7 @@ func computeTotals() {
         // e.g.    totalNumTxSent         = sum of txSent[*][*]
         // e.g.    totalNumTxSentFailures = sum of txSentFailures[*][*]
 
-        totalNumTxSent = countGenesis()   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
+        totalNumTxSent = 0 //countGenesis()   // one genesis block for each channel always is delivered; start with them, and add the "sent" counters below
         totalNumTxSentFailures = 0
         for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
@@ -367,9 +367,9 @@ func reportTotals() (successResult bool, resultStr string) {
                 }
         } else if totalTxRecv[0] == countGenesis() + totalNumTxSent + totalNumTxSentFailures {
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
-                        resultStr += "Every ACked TX was delivered, but NACKs occurred: "
+                        resultStr += "Every ACked TX was delivered, but failures occurred: "
                 } else {
-                        resultStr += "Orderers were INCONSISTENT: Every ACked TX was delivered, but NACKs occurred: "
+                        resultStr += "Orderers were INCONSISTENT: Every ACked TX was delivered, but failures occurred: "
                 }
         } else {
                 resultStr += "BAD! Some ACKed TX were LOST by orderer service! "
@@ -581,6 +581,5 @@ func main() {
         if envvar != "" { kbs, _ = strconv.Atoi(envvar) }
         fmt.Println("OTE_KAFKABROKERS=",envvar, " , kbs=",kbs)
 
-        _, resultStr := ote( txs, chans, orderers, ordType, kbs )
-        fmt.Println(resultStr)
+        _, _ := ote( txs, chans, orderers, ordType, kbs )
 }
