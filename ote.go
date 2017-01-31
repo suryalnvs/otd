@@ -104,7 +104,7 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int) 
         for {
                 msg, err := r.client.Recv()
                 if err != nil {
-                        fmt.Println("Error receiving:", err)
+                        //fmt.Println("Error receiving:", err)
                         return
                 }
 
@@ -147,19 +147,25 @@ func (b *broadcastClient) getAck() error {
        return nil
 }
 
+func connClose() {
+       for i := 0; i < numOrdsInNtwk; i++ {
+          for j := 0; j < numChannels; j++ {
+             _ = consumerConn[i][j].Close()
+          }
+       }
+}
 func startConsumer(serverAddr string, chainID string, ordererIndex int, channelIndex int) {
-
-        conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
-        if err != nil {
-                fmt.Println("Error connecting (grpc) to " + serverAddr + ", err: ", err)
-                return
+       var err error
+       consumerConn[ordererIndex][channelIndex], err = grpc.Dial(serverAddr, grpc.WithInsecure())
+       if err != nil {
+               fmt.Println("Error connecting (grpc) to " + serverAddr + ", err: ", err)
+               return
+       }
+       client, err := ab.NewAtomicBroadcastClient(consumerConn[ordererIndex][channelIndex]).Deliver(context.TODO())
+       if err != nil {
+               fmt.Println("Error connecting:", err)
+               return
         }
-        client, err := ab.NewAtomicBroadcastClient(conn).Deliver(context.TODO())
-        if err != nil {
-                fmt.Println("Error connecting:", err)
-                return
-        }
-
         s := newOrdererdriveClient(client, chainID)
         err = s.seekOldest()
         if err == nil {
@@ -186,7 +192,9 @@ func executeCmdAndDisplay(cmd string) {
 
 func cleanNetwork() {
         //executeCmdAndDisplay("docker ps -a")
-
+        fmt.Println("Removing the Network")
+        connClose()
+        time.Sleep(10 * time.Second)
         // Docker is not perfect; we need to unpause any paused containers, before we can kill them.
         //_ = executeCmd("docker ps -aq -f status=paused | xargs docker unpause")
 
@@ -355,7 +363,7 @@ func reportTotals() (successResult bool, resultStr string) {
                 } else {
                         resultStr += "Orderers were INCONSISTENT: "
                         // Every TX was successfully sent AND delivered by at least one orderer -
-                        // HOWEVER all orderers that were being watched did not deliver the same counts 
+                        // HOWEVER all orderers that were being watched did not deliver the same counts
                 }
         } else if totalTxRecv[0] == countGenesis() + totalNumTxSent + totalNumTxSentFailures {
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
@@ -414,7 +422,7 @@ var totalBlockRecv []int64          // total Blocks recvd by all consumers on an
 var totalTxRecv    []int64          // total TXs received by all consumers on an orderer, indexed by numOrdsToWatch
 var totalTxRecvMismatch bool = false
 var totalBlockRecvMismatch bool = false
-
+var consumerConn [][]*grpc.ClientConn
 
 // outputs:     print report to stdout with lots of counters
 // returns:     passed bool, resultSummary string
@@ -451,7 +459,6 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Create the 1D slice of channel IDs, and create names for them which we will use
         // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
-
         channels = make([]string, numChannels)     // create a counter for each of the channels
         for c:=0; c < numChannels; c++ {
                // channels[c] = fmt.Sprintf("testchan_%05d", c)
@@ -474,6 +481,8 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
                 txSentFailures = append(txSentFailures, sendFailCntrs) // orderer-i gets a set
                 sendCountsForOrd := make([]int64, numChannels)  // create a counter for all the channels on one orderer
                 sendCount = append(sendCount, sendCountsForOrd) // orderer-i gets a set
+                consumerRow := make([]*grpc.ClientConn, numChannels)
+                consumerConn = append(consumerConn, consumerRow)
         }
         for i := 0; i < numOrdsToWatch; i++ {  // for all orderers which we will watch/monitor for deliveries
                 blockRecvCntrs := make([]int64, numChannels)  // create a set of block counters for each channel
@@ -496,7 +505,6 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         for ord := 0; ord < numOrdsToWatch; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
-                        time.Sleep(5 * time.Second)
                         go startConsumer(serverAddr, channels[c], ord, c)
                 }
         }
@@ -511,7 +519,6 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
                 for c := 0 ; c < numChannels ; c++ {
                         sendCount[ord][c]= numTxToSend / int64(numProducers)
                         if c==0 && ord==0 { sendCount[ord][c] += numTxToSend % int64(numProducers) }
-                        time.Sleep(5 * time.Second)
                         go startProducer(serverAddr, channels[c], ord, c, sendCount[ord][c])
                 }
         }
@@ -537,8 +544,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         fmt.Println("(time waiting for orderer service to finish delivering transactions, after all producers finished sending them)")
 
         passed, resultSummary = reportTotals()
-
-        //cleanNetwork()
+        cleanNetwork()
 
         return passed, resultSummary
 }
@@ -578,4 +584,3 @@ func main() {
         _, resultStr := ote( txs, chans, orderers, ordType, kbs )
         fmt.Println(resultStr)
 }
-
