@@ -44,7 +44,7 @@ import (
         "time"
         "sync"
 
-        "github.com/hyperledger/fabric/orderer/common/bootstrap/provisional"
+        //"github.com/hyperledger/fabric/orderer/common/bootstrap/provisional"
         "github.com/hyperledger/fabric/orderer/localconfig"
         cb "github.com/hyperledger/fabric/protos/common"
         ab "github.com/hyperledger/fabric/protos/orderer"
@@ -130,6 +130,7 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, 
                         return
                 case *ab.DeliverResponse_Block:
                         **txRecvCntr_p += int64(len(t.Block.Data.Data))
+                        fmt.Println("Consumer recvd a block, o c:", ordererIndex, channelIndex)
                         //**blockRecvCntr_p = int64(t.Block.Header.Number) // this assumes header number is the block number; instead let's just add one
                         (**blockRecvCntr_p)++
                 }
@@ -316,7 +317,7 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
 
         // Counters for consumers are indexed by orderer (numOrdsToWatch) and channel (numChannels).
         // All counters for all the channels on JUST ONE orderer is the total count.
-        // Tally up the totals for all orderers, and store them for comparison; they should all be the same.
+        // Tally up the totals for all the channels on each orderer, and store them for comparison; they should all be the same.
         // e.g.    totalTxRecv[k]    = sum of txRecv[k][*]
         // e.g.    totalBlockRecv[k] = sum of blockRecv[k][*]
 
@@ -328,12 +329,12 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
                 for l := 0; l < numChannels; l++ {
                         (*totalTxRecv)[k] += (*txRecv)[k][l]
                         (*totalBlockRecv)[k] += (*blockRecv)[k][l]
-                        //fmt.Println("in compute(): k, l, txRecv[k][l], blockRecv[k][l] : " , k , l , (*txRecv)[k][l] , (*blockRecv)[k][l] )
+                        fmt.Println("in compute(): k, l, txRecv[k][l], blockRecv[k][l] : " , k , l , (*txRecv)[k][l] , (*blockRecv)[k][l] )
                 }
                 if (k>0) && (*totalTxRecv)[k] != (*totalTxRecv)[k-1] { *totalTxRecvMismatch = true }
                 if (k>0) && (*totalBlockRecv)[k] != (*totalBlockRecv)[k-1] { *totalBlockRecvMismatch = true }
         }
-        //fmt.Println("in compute(): totalTxRecv[]=" , (*totalTxRecv) , "    totalBlockRecv[]=" , (*totalBlockRecv) )
+        fmt.Println("in compute(): totalTxRecv[]=" , (*totalTxRecv) , "    totalBlockRecv[]=" , (*totalBlockRecv) )
 
         // Note: if we do not remove the orderers (docker containers) during clean up, then
         // the totalTxRecv and totalBlockRecv counts would include counts from earlier tests, since
@@ -454,23 +455,6 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         numConsumers = numOrdsInNtwk * numChannels
         numOrdsToWatch = numOrdsInNtwk               // watch every orderer to verify they are all delivering the same
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Create the 1D slice of channel IDs, and create names for them which we will use
-        // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
-
-        var channelIDs []string
-        channelIDs = make([]string, numChannels)     // create a slice of channelIDs
-        for c:=0; c < numChannels; c++ {
-               // channelIDs[c] = fmt.Sprintf("testchan%05d", c)
-               // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
-               // (We cannot just make up names; instead we must ensure the IDs are the same ones
-               // added/created in the launched network itself).
-               // And for now we support only one channel.
-               // That is all that will make sense numerically, since any consumers for multiple channels
-               // on a single orderer would see duplicates since they are arriving with the same TestChainID.
-               channelIDs[c] = provisional.TestChainID
-        }
-
 
         // Each producer sends TXs to one channel on one orderer, and increments its own counters for
         // the successfully sent Tx, and the send-failures (rejected/timeout).
@@ -543,6 +527,27 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         time.Sleep(10 * time.Second)
 
         ////////////////////////////////////////////////////////////////////////////////////////////
+        // Create the 1D slice of channel IDs, and create names for them which we will use
+        // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
+
+        var channelIDs []string
+        channelIDs = make([]string, numChannels)     // create a slice of channelIDs
+        for c:=0; c < numChannels; c++ {
+               channelIDs[c] = fmt.Sprintf("testchan%05d", c)
+               // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
+               // (We cannot just make up names; instead we must ensure the IDs are the same ones
+               // added/created in the launched network itself).
+               // And for now we support only one channel.
+               // That is all that will make sense numerically, since any consumers for multiple channels
+               // on a single orderer would see duplicates since they are arriving with the same TestChainID.
+               //channelIDs[c] = provisional.TestChainID
+               //cmd := fmt.Sprintf("cd ../.. && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
+               cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
+               //executeCmdAndDisplay(cmd)
+               _ = executeCmd(cmd)
+        }
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // start threads for a consumer to watch each channel on all (the specified number of) orderers.
         // This code assumes orderers in the network will use increasing port numbers:
         // the first ordererer uses default port (7050), the second uses 7051, third uses 7052, etc.
@@ -586,7 +591,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         computeTotals(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch)
         batchtimeout := 10
         waitSecs := 0
-        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs < batchtimeout) { time.Sleep(1 * time.Second); waitSecs++ }
+        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs < batchtimeout) { time.Sleep(2 * time.Second); waitSecs++ }
 
         // Recovery Duration = time spent waiting for orderer service to finish delivering transactions,
         // after all producers finished sending them.

@@ -18,7 +18,7 @@ limitations under the License.
 package main        // Orderer Test Engine
 
 import (
-        "fmt"
+        //"fmt"
         "testing"
 )
 
@@ -38,17 +38,32 @@ func Test_100TX_1ch_1ord_Solo(t *testing.T) {
 */
 
 
-func Test_100000TX_1ch_1ord_kafka_3kbrokers(t *testing.T) {
-        fmt.Println("Start ote_test Test_100000TX_1ch_1ord_kafka_3kbrokers")
-        fmt.Println("Send 100,000 TX on 1 channel to 1 orderers of type kafka using 3 kafka-brokers")
-        passResult, finalResultSummaryString := ote(100000, 1, 1, "kafka", 3 )
+/*
+func Test_1000TX_1ch_1ord_kafka_3kbrokers(t *testing.T) {
+        fmt.Println("\nStart ote_test: Send 1000 TX on 1 channel to 1 orderer of type kafka using 3 kafka-brokers")
+        passResult, finalResultSummaryString := ote(1000, 1, 1, "kafka", 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-func Test_100000TX_1ch_3ord_kafka_3kbrokers(t *testing.T) {
-        fmt.Println("Start ote_test Test_100000TX_1ch_3ord_kafka_3kbrokers")
-        fmt.Println("Send 100,000 TX on 1 channel to 3 orderers of type kafka using 3 kafka-brokers")
-        passResult, finalResultSummaryString := ote(100000, 1, 3, "kafka", 3 )
+func Test_1000TX_9ch_3ord_kafka_3kbs(t *testing.T) {
+        fmt.Println("\nStart ote_test: Send 1000 TX on 9 channel to 3 orderers of type kafka using 3 kafka-brokers")
+        passResult, finalResultSummaryString := ote(1000, 9, 3, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+*/
+
+func Test_100TX_1ch_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(100, 1, 3, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_100TX_2ch_1ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(100, 2, 1, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_100TX_2ch_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(100, 2, 3, "kafka", 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
