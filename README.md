@@ -17,8 +17,8 @@ docker-compose version
 
 ### Clone the repo
 ```bash
-git clone https://github.com/hyperledger-fabric.git
-cd ./fabric/bddtests/regression/ote
+git clone https://github.com/hyperledger/fabric.git
+cd ./fabric/bddtests/regression/go/ote
 ```
 
 ### Execute Tests.
