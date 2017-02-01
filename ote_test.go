@@ -37,33 +37,34 @@ func Test_100TX_1ch_1ord_Solo(t *testing.T) {
 }
 */
 
-
-/*
-func Test_1000TX_1ch_1ord_kafka_3kbrokers(t *testing.T) {
-        fmt.Println("\nStart ote_test: Send 1000 TX on 1 channel to 1 orderer of type kafka using 3 kafka-brokers")
-        passResult, finalResultSummaryString := ote(1000, 1, 1, "kafka", 3 )
+func Test_12TX_1ch_1ord_kafka_1kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(12, 1, 1, "kafka", 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-func Test_1000TX_9ch_3ord_kafka_3kbs(t *testing.T) {
-        fmt.Println("\nStart ote_test: Send 1000 TX on 9 channel to 3 orderers of type kafka using 3 kafka-brokers")
-        passResult, finalResultSummaryString := ote(1000, 9, 3, "kafka", 3 )
+func Test_12TX_1ch_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(12, 1, 3, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_4TX_3ch_1ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(4, 3, 1, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_8TX_2ch_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(8, 2, 3, "kafka", 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+/*
+func Test_10000TX_3ch_3ord_kafka_9kbrokers(t *testing.T) {
+        passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 9 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_10000TX_100ch_10ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(10000, 100, 10, "kafka", 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 */
-
-func Test_100TX_1ch_3ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(100, 1, 3, "kafka", 3 )
-        if !passResult { t.Error(finalResultSummaryString) }
-}
-
-func Test_100TX_2ch_1ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(100, 2, 1, "kafka", 3 )
-        if !passResult { t.Error(finalResultSummaryString) }
-}
-
-func Test_100TX_2ch_3ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(100, 2, 3, "kafka", 3 )
-        if !passResult { t.Error(finalResultSummaryString) }
-}
-

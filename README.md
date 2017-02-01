@@ -17,8 +17,8 @@ docker-compose version
 
 ### Clone the repo
 ```bash
-git clone https://github.com/hyperledger/fabric.git
-cd ./fabric/bddtests/regression/go/ote
+git clone https://github.com/hyperledger-fabric.git
+cd ./fabric/bddtests/regression/ote
 ```
 
 ### Execute Tests.
@@ -32,12 +32,13 @@ There are several environment variables to control the test parameters,
 such as number of transactions, number of orderers, ordererType, and more.
 To see an example using default settings, simply execute the following. 
 ```bash
+go build
 ./ote
 ```
 Note the parameters will be displayed, and you can then choose to
-set them to the settings of your choice.
+set them to the settings of your choice. For example:
 ```bash
-OTE_TXS=1000 OTE_ORDERERS=3 ./ote
+OTE_TXS=1000 OTE_CHANNELS=3 OTE_ORDERERS=3 ./ote
 ```
 
 ### Helpful Docker Commands

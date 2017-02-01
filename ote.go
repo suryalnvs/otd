@@ -129,8 +129,8 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, 
                         fmt.Println("Got status ", t)
                         return
                 case *ab.DeliverResponse_Block:
+                        //fmt.Println("Consumer recvd a block, o c numtrans:", ordererIndex, channelIndex, len(t.Block.Data.Data))
                         **txRecvCntr_p += int64(len(t.Block.Data.Data))
-                        fmt.Println("Consumer recvd a block, o c:", ordererIndex, channelIndex)
                         //**blockRecvCntr_p = int64(t.Block.Header.Number) // this assumes header number is the block number; instead let's just add one
                         (**blockRecvCntr_p)++
                 }
@@ -329,14 +329,14 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
                 for l := 0; l < numChannels; l++ {
                         (*totalTxRecv)[k] += (*txRecv)[k][l]
                         (*totalBlockRecv)[k] += (*blockRecv)[k][l]
-                        fmt.Println("in compute(): k, l, txRecv[k][l], blockRecv[k][l] : " , k , l , (*txRecv)[k][l] , (*blockRecv)[k][l] )
+                        //fmt.Println("in compute(): k, l, txRecv[k][l], blockRecv[k][l] : " , k , l , (*txRecv)[k][l] , (*blockRecv)[k][l] )
                 }
                 if (k>0) && (*totalTxRecv)[k] != (*totalTxRecv)[k-1] { *totalTxRecvMismatch = true }
                 if (k>0) && (*totalBlockRecv)[k] != (*totalBlockRecv)[k-1] { *totalBlockRecvMismatch = true }
         }
-        fmt.Println("in compute(): totalTxRecv[]=" , (*totalTxRecv) , "    totalBlockRecv[]=" , (*totalBlockRecv) )
+        //fmt.Println("in compute(): totalTxRecv[]=" , (*totalTxRecv) , "    totalBlockRecv[]=" , (*totalBlockRecv) )
 
-        // Note: if we do not remove the orderers (docker containers) during clean up, then
+        // Note: we must remove the orderers (docker containers) to clean up the network; otherwise
         // the totalTxRecv and totalBlockRecv counts would include counts from earlier tests, since
         // ALL the ordered blocks that have accumulated in the orderer will be reported (and
         // not just the ones from this test with this set of producers/consumers).
@@ -368,13 +368,13 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
                 }
         }
 
-        fmt.Printf("Not counting genesis blks (per chan)  %9d\n", countGenesis())
+        fmt.Printf("Not counting genesis blks (1 per chan)%9d\n", countGenesis())
         fmt.Printf("Total TX broadcasts Requested to Send %9d\n", numTxToSendTotal)
         fmt.Printf("Total TX broadcasts send success ACK  %9d\n", totalNumTxSent)
         fmt.Printf("Total TX broadcasts sendFailed - NACK %9d\n", totalNumTxSentFailures)
         fmt.Printf("Total deliveries Received TX Count    %9d\n", totalTxRecv[0])
         fmt.Printf("Total deliveries Received Blocks      %9d\n", totalBlockRecv[0])
-        fmt.Printf("Total LOST transactions               %9d\n", totalTxRecv[0] - totalNumTxSent - totalNumTxSentFailures)
+        fmt.Printf("Total LOST transactions               %9d\n", totalNumTxSent + totalNumTxSentFailures - totalTxRecv[0] )
 
         // Check for differences on the deliveries from the orderers. These are probably errors -
         // unless the test stopped an orderer on purpose and never restarted it, while the
@@ -418,7 +418,7 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
 // Returns:     passed bool, resultSummary string
 func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed bool, resultSummary string) {
         testformat := fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d", txs, chans, orderers, ordType, kbs)
-        fmt.Println("In ote(), args: ", testformat)
+        fmt.Println("\nIn ote(), args: ", testformat)
         passed = false
         resultSummary = "Test Not Completed: INPUT ERROR: "
 
@@ -488,15 +488,12 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         for i := 0; i < numOrdsInNtwk; i++ {                    // for all orderers
 
                 countToSendForOrd := make([]int64, numChannels) // create a counter for all the channels on one orderer
-        //        for c := 0; c < numChannels; c++ { countToSendForOrd[c] = 0 }
                 countToSend = append(countToSend, countToSendForOrd) // orderer-i gets a set
 
                 sendPassCntrs := make([]int64, numChannels)     // create a counter for all the channels on one orderer
-        //        for c := 0; c < numChannels; c++ { sendPassCntrs[c] = 0 }
                 txSent = append(txSent, sendPassCntrs)          // orderer-i gets a set
 
                 sendFailCntrs := make([]int64, numChannels)     // create a counter for all the channels on one orderer
-        //        for c := 0; c < numChannels; c++ { sendFailCntrs[c] = 0 }
                 txSentFailures = append(txSentFailures, sendFailCntrs) // orderer-i gets a set
 
                 consumerRow := make([]*grpc.ClientConn, numChannels)
@@ -506,17 +503,14 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         for i := 0; i < numOrdsToWatch; i++ {  // for all orderers which we will watch/monitor for deliveries
 
                 blockRecvCntrs := make([]int64, numChannels)  // create a set of block counters for each channel
-        //         for c := 0; c < numChannels; c++ { blockRecvCntrs[c] = 0 }
                 blockRecv = append(blockRecv, blockRecvCntrs) // orderer-i gets a set
 
                 txRecvCntrs := make([]int64, numChannels)     // create a set of tx counters for each channel
-        //         for c := 0; c < numChannels; c++ { txRecvCntrs[c] = 0 }
                 txRecv = append(txRecv, txRecvCntrs)          // orderer-i gets a set
         }
 
         totalTxRecv    = make([]int64, numOrdsToWatch)  // create counter for each orderer, for total tx received (for all channels)
         totalBlockRecv = make([]int64, numOrdsToWatch)  // create counter for each orderer, for total blk received (for all channels)
-        // for i := 0; i < numOrdsToWatch; i++ { totalTxRecv[i] = 0; totalBlockRecv[i] = 0 }
 
 
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -533,17 +527,9 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         var channelIDs []string
         channelIDs = make([]string, numChannels)     // create a slice of channelIDs
         for c:=0; c < numChannels; c++ {
-               channelIDs[c] = fmt.Sprintf("testchan%05d", c)
-               // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
-               // (We cannot just make up names; instead we must ensure the IDs are the same ones
-               // added/created in the launched network itself).
-               // And for now we support only one channel.
-               // That is all that will make sense numerically, since any consumers for multiple channels
-               // on a single orderer would see duplicates since they are arriving with the same TestChainID.
-               //channelIDs[c] = provisional.TestChainID
-               //cmd := fmt.Sprintf("cd ../.. && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
+               channelIDs[c] = fmt.Sprintf("chan%05d", c)
+               //channelIDs[c] = provisional.TestChainID  // for testing with the hardcoded default channelID (ok for tests using only one channel)
                cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
-               //executeCmdAndDisplay(cmd)
                _ = executeCmd(cmd)
         }
 
@@ -565,6 +551,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // now that the orderer service network is running, and the consumers are watching for deliveries,
         // we can start clients which will broadcast the specified number of msgs to their associated orderers
+
         sendStart := time.Now().Unix()
         producers_wg.Add(numProducers)
         for ord := 0; ord < numOrdsInNtwk; ord++ {
@@ -573,6 +560,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
                         countToSend[ord][c]= numTxToSend / int64(numProducers)
                         if c==0 && ord==0 { countToSend[ord][c] += numTxToSend % int64(numProducers) }
                         go startProducer(serverAddr, channelIDs[c], ord, c, countToSend[ord][c], &(txSent[ord][c]), &(txSentFailures[ord][c]))
+                        time.Sleep(2 * time.Second)
                 }
         }
 
@@ -591,7 +579,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         computeTotals(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch)
         batchtimeout := 10
         waitSecs := 0
-        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs < batchtimeout) { time.Sleep(2 * time.Second); waitSecs++ }
+        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs <= batchtimeout) { time.Sleep(1 * time.Second); waitSecs++ }
 
         // Recovery Duration = time spent waiting for orderer service to finish delivering transactions,
         // after all producers finished sending them.
@@ -612,31 +600,26 @@ func main() {
         kbs      := 3
 
         // Read env vars
-        fmt.Println("\nEnvironment variables for this test, and corresponding values actually used for the test:")
+        fmt.Println("\nEnvironment variables provided for this test, and corresponding values actually used for the test:")
 
         envvar := os.Getenv("OTE_TXS")
         if envvar != "" { txs, _ = strconv.ParseInt(envvar, 10, 64) }
-        //fmt.Println("OTE_TXS=",envvar, " , txs=",txs)
         fmt.Printf("%-40s %s=%d\n", "OTE_TXS="+envvar, "txs", txs)
 
         envvar = os.Getenv("OTE_CHANNELS")
         if envvar != "" { chans, _ = strconv.Atoi(envvar) }
-        //fmt.Println("OTE_CHANNELS=",envvar, " , chans=",chans)
         fmt.Printf("%-40s %s=%d\n", "OTE_CHANNELS="+envvar, "chans", chans)
 
         envvar = os.Getenv("OTE_ORDERERS")
         if envvar != "" { orderers, _ = strconv.Atoi(envvar) }
-        //fmt.Println("OTE_ORDERERS=",envvar, " , orderers=",orderers)
         fmt.Printf("%-40s %s=%d\n", "OTE_ORDERERS="+envvar, "orderers", orderers)
 
         envvar = os.Getenv("ORDERER_GENESIS_ORDERERTYPE")
         if envvar != "" { ordType = envvar }
-        //fmt.Println("ORDERER_GENESIS_ORDERERTYPE=",envvar, " , ordType=",ordType)
         fmt.Printf("%-40s %s=%s\n", "ORDERER_GENESIS_ORDERERTYPE="+envvar, "ordType", ordType)
 
         envvar = os.Getenv("OTE_KAFKABROKERS")
         if envvar != "" { kbs, _ = strconv.Atoi(envvar) }
-        //fmt.Println("OTE_KAFKABROKERS=",envvar, " , kbs=",kbs)
         fmt.Printf("%-40s %s=%d\n", "OTE_KAFKABROKERS="+envvar, "kbs", kbs)
 
         _, _ = ote( txs, chans, orderers, ordType, kbs )
