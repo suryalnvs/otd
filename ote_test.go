@@ -66,4 +66,3 @@ func Test_100TX_2ch_3ord_kafka_3kbs(t *testing.T) {
         passResult, finalResultSummaryString := ote(100, 2, 3, "kafka", 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
-
