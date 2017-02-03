@@ -62,9 +62,4 @@ func Test_10000TX_3ch_3ord_kafka_9kbrokers(t *testing.T) {
         passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 9 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
-
-func Test_10000TX_100ch_10ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(10000, 100, 10, "kafka", 3 )
-        if !passResult { t.Error(finalResultSummaryString) }
-}
 */

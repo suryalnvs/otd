@@ -44,7 +44,7 @@ import (
         "time"
         "sync"
 
-        //"github.com/hyperledger/fabric/orderer/common/bootstrap/provisional"
+        "github.com/hyperledger/fabric/orderer/common/bootstrap/provisional"
         "github.com/hyperledger/fabric/orderer/localconfig"
         cb "github.com/hyperledger/fabric/protos/common"
         ab "github.com/hyperledger/fabric/protos/orderer"
@@ -56,6 +56,7 @@ import (
 
 
 var producers_wg sync.WaitGroup
+var ordStartPort uint16 = 5005          // starting port used by the tool called by launchNetwork()
 var numChannels int = 1
 var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
 var numOrdsToWatch int = 1              // default set to 1; we must watch at least one orderer
@@ -258,13 +259,17 @@ func cleanNetwork(consumerConns_p *([][]*grpc.ClientConn)) {
         _ = executeCmd("docker rm -f $(docker ps -aq)")
 }
 
-func launchNetwork(nOrderers int) {
+func launchNetwork(nOrderers int, nkbs int) {
         fmt.Println("Start orderer service, using docker-compose")
-        if (nOrderers == 1) {
+        /*if (nOrderers == 1) {
         _ = executeCmd("docker-compose up -d")
         } else {
         _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
-        }
+        }*/
+        cmd := fmt.Sprintf("./driver.sh create 1 %d %d level", nOrderers, nkbs)
+
+        //_ = exec.Command("/bin/sh", "-c", cmd).Output()
+        executeCmd(cmd)
         executeCmdAndDisplay("docker ps -a")
 }
 
@@ -635,7 +640,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         // For now, launchNetwork() uses docker-compose. later, we will need to pass args to it so it can
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
 
-        launchNetwork(numOrdsInNtwk)
+        launchNetwork(orderers, kbs)
         time.Sleep(10 * time.Second)
 
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -645,24 +650,32 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         var channelIDs []string
         channelIDs = make([]string, numChannels)     // create a slice of channelIDs
         for c:=0; c < numChannels; c++ {
-               channelIDs[c] = fmt.Sprintf("chan%05d", c)
-               //channelIDs[c] = provisional.TestChainID  // for testing with the hardcoded default channelID (ok for tests using only one channel)
-               cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
-               _ = executeCmd(cmd)
+               //channelIDs[c] = fmt.Sprintf("testchan%05d", c)
+               // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
+               // (We cannot just make up names; instead we must ensure the IDs are the same ones
+               // added/created in the launched network itself).
+               // And for now we support only one channel.
+               // That is all that will make sense numerically, since any consumers for multiple channels
+               // on a single orderer would see duplicates since they are arriving with the same TestChainID.
+               channelIDs[c] = provisional.TestChainID
+               //cmd := fmt.Sprintf("cd ../.. && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
+               //cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:5005 peer channel create -c %s",channelIDs[c])
+               //executeCmdAndDisplay(cmd)
+               //_ = executeCmd(cmd)
         }
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // start threads for a consumer to watch each channel on all (the specified number of) orderers.
         // This code assumes orderers in the network will use increasing port numbers:
-        // the first ordererer uses default port (7050), the second uses 7051, third uses 7052, etc.
+        // the first ordererer uses default port (7050), the second uses default+1(7051), etc.
 
         for ord := 0; ord < numOrdsToWatch; ord++ {
-                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
+                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort + uint16(ord))
                 if masterSpy && ord == numOrdsToWatch-1 {
                         // Special case: this is the last row of counters, added (and incremented numOrdsToWatch) for the masterSpy
                         // to use to watch the first orderer for deliveries, on all channels. This will be a duplicate Consumer
                         // (it is the second one monitoring the first orderer), so we need to reuse the first port.
-                        serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort)
+                        serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort)
                         go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
                 } else
                 if optimizeClientsMode {
@@ -692,7 +705,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         }
         sendStart := time.Now().Unix()
         for ord := 0; ord < numOrdsInNtwk; ord++ {    // on each orderer:
-                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
+                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         countToSend[ord][c] = numTxToSend / int64(numOrdsInNtwk * numChannels)
                         if c==0 && ord==0 { countToSend[ord][c] += numTxToSend % int64(numOrdsInNtwk * numChannels) }
