@@ -114,7 +114,7 @@ func (r *ordererdriveClient) seek(blockNumber uint64) error {
         return r.client.Send(seekHelper(r.chainID, &ab.SeekPosition{Type: &ab.SeekPosition_Specified{Specified: &ab.SeekSpecified{Number: blockNumber}}}))
 }
 
-func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, txRecvCntr_p **int64, blockRecvCntr_p **int64) {
+func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, txRecvCntr_p *int64, blockRecvCntr_p *int64) {
         for {
                 msg, err := r.client.Recv()
                 if err != nil {
@@ -126,13 +126,15 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, 
                 }
                 switch t := msg.Type.(type) {
                 case *ab.DeliverResponse_Status:
-                        fmt.Println("Got status ", t)
+                        fmt.Println("Got DeliverResponse_Status: ", t)
                         return
                 case *ab.DeliverResponse_Block:
-                        //fmt.Println("Consumer recvd a block, o c numtrans:", ordererIndex, channelIndex, len(t.Block.Data.Data))
-                        **txRecvCntr_p += int64(len(t.Block.Data.Data))
-                        //**blockRecvCntr_p = int64(t.Block.Header.Number) // this assumes header number is the block number; instead let's just add one
-                        (**blockRecvCntr_p)++
+                        if t.Block.Header.Number > 0 {
+                            //fmt.Println("Consumer recvd a block, o c blkNum numtrans blk:", ordererIndex, channelIndex, t.Block.Header.Number, len(t.Block.Data.Data), t.Block.Data.Data)
+                        }
+                        *txRecvCntr_p += int64(len(t.Block.Data.Data))
+                        //*blockRecvCntr_p = int64(t.Block.Header.Number) // this assumes header number is the block number; instead let's just add one
+                        (*blockRecvCntr_p)++
                 }
         }
 }
@@ -164,22 +166,14 @@ func (b *broadcastClient) getAck() error {
        return nil
 }
 
-func connClose(consumerConns_p_p **([][]*grpc.ClientConn)) {
-        for i := 0; i < numOrdsInNtwk; i++ {
-                for j := 0; j < numChannels; j++ {
-                        _ = (**consumerConns_p_p)[i][j].Close()
-                }
-        }
-}
-
-func startConsumer(serverAddr string, chainID string, ordererIndex int, channelIndex int, txRecvCntr_p *int64, blockRecvCntr_p *int64, consumerConns_p *([][]*grpc.ClientConn)) {
+func startConsumer(serverAddr string, chainID string, ordererIndex int, channelIndex int, txRecvCntr_p *int64, blockRecvCntr_p *int64, consumerConn_p **grpc.ClientConn) {
         conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
         if err != nil {
                 fmt.Printf("Error on Consumer ord[%d] ch[%d] connecting (grpc) to %s, err: %v\n", ordererIndex, channelIndex, serverAddr, err)
                 return
         }
-        (*consumerConns_p)[ordererIndex][channelIndex] = conn
-        client, err := ab.NewAtomicBroadcastClient((*consumerConns_p)[ordererIndex][channelIndex]).Deliver(context.TODO())
+        (*consumerConn_p) = conn
+        client, err := ab.NewAtomicBroadcastClient(*consumerConn_p).Deliver(context.TODO())
         if err != nil {
                 fmt.Printf("Error on Consumer ord[%d] ch[%d] invoking Deliver() on grpc connection to %s, err: %v\n", ordererIndex, channelIndex, serverAddr, err)
                 return
@@ -187,11 +181,42 @@ func startConsumer(serverAddr string, chainID string, ordererIndex int, channelI
         s := newOrdererdriveClient(client, chainID)
         err = s.seekOldest()
         if err == nil {
-                fmt.Printf("Started Consumer to recv delivered batches from ord[%d] ch[%d] srvr=%s chID=%s\n", ordererIndex, channelIndex, serverAddr, chainID)
+                //fmt.Printf("Started Consumer to recv delivered batches from ord[%d] ch[%d] srvr=%s chID=%s\n", ordererIndex, channelIndex, serverAddr, chainID)
         } else {
                 fmt.Printf("ERROR starting Consumer client for ord[%d] ch[%d] for srvr=%s chID=%s; err: %v\n", ordererIndex, channelIndex, serverAddr, chainID, err)
         }
-        s.readUntilClose(ordererIndex, channelIndex, &txRecvCntr_p, &blockRecvCntr_p)
+        s.readUntilClose(ordererIndex, channelIndex, txRecvCntr_p, blockRecvCntr_p)
+}
+
+func startConsumerMaster(serverAddr string, chainIDs_p *[]string, ordererIndex int, txRecvCntrs_p *[]int64, blockRecvCntrs_p *[]int64, consumerConn_p **grpc.ClientConn) {
+        // create one conn to the orderer and share it for communications to all channels
+        conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
+        if err != nil {
+                fmt.Printf("Error on MasterConsumer ord[%d] connecting (grpc) to %s, err: %v\n", ordererIndex, serverAddr, err)
+                return
+        }
+        (*consumerConn_p) = conn
+
+        // create an orderer driver client for every channel on this orderer
+        //[][]*ordererdriveClient  //  numChannels
+        dc := make ([]*ordererdriveClient, numChannels)
+        for c := 0; c < numChannels; c++ {
+                client, err := ab.NewAtomicBroadcastClient(*consumerConn_p).Deliver(context.TODO())
+                if err != nil {
+                        fmt.Printf("Error on MasterConsumer ord[%d] invoking Deliver() on grpc connection to %s, err: %v\n", ordererIndex, serverAddr, err)
+                        return
+                }
+                dc[c] = newOrdererdriveClient(client, (*chainIDs_p)[c])
+                err = dc[c].seekOldest()
+                if err == nil {
+                        //fmt.Printf("Started MasterConsumer to recv delivered batches from ord[%d] ch[%d] srvr=%s chID=%s\n", ordererIndex, c, serverAddr, (*chainIDs_p)[c])
+                } else {
+                        fmt.Printf("ERROR starting MasterConsumer client for ord[%d] ch[%d] for srvr=%s chID=%s; err: %v\n", ordererIndex, c, serverAddr, (*chainIDs_p)[c], err)
+                }
+                // we would prefer to skip these go threads, and just have on "readUntilClose" that looks for deliveries on all channels!!! (see below.)
+                // otherwise, what have we really saved?
+                go dc[c].readUntilClose(ordererIndex, c, &((*txRecvCntrs_p)[c]), &((*blockRecvCntrs_p)[c]))
+        }
 }
 
 func executeCmd(cmd string) []byte {
@@ -206,6 +231,16 @@ func executeCmd(cmd string) []byte {
 func executeCmdAndDisplay(cmd string) {
         out := executeCmd(cmd)
         fmt.Println("Results of exec command: "+cmd+"\nstdout="+string(out))
+}
+
+func connClose(consumerConns_p_p **([][]*grpc.ClientConn)) {
+        for i := 0; i < numOrdsToWatch; i++ {
+                for j := 0; j < numChannels; j++ {
+                        if (**consumerConns_p_p)[i][j] != nil {
+                                _ = (**consumerConns_p_p)[i][j].Close()
+                        }
+                }
+        }
 }
 
 func cleanNetwork(consumerConns_p *([][]*grpc.ClientConn)) {
@@ -271,7 +306,7 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
                 fmt.Printf("Error creating Producer for ord[%d] ch[%d], err: %v\n", ordererIndex, channelIndex, err)
                 return
         }
-        fmt.Printf("Started Producer to send %d TXs to ord[%d] ch[%d] srvr=%s chID=%s\n", txReq, ordererIndex, channelIndex, serverAddr, chainID)
+        //fmt.Printf("Started Producer to send %d TXs to ord[%d] ch[%d] srvr=%s chID=%s\n", txReq, ordererIndex, channelIndex, serverAddr, chainID)
         b := newBroadcastClient(client, chainID)
         first_err := false
         for i := int64(0); i < txReq ; i++ {
@@ -291,9 +326,76 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
                 fmt.Printf("Broadcast error on last TX %d of Producer ord[%d] ch[%d]: %v\n", txReq, ordererIndex, channelIndex, err)
         }
         if txReq == *txSentCntr_p {
-                fmt.Printf("Producer finished sending broadcast msgs to ord[%d] ch[%d]: ACKs  %9d  (100%%)\n", ordererIndex, channelIndex, *txSentCntr_p)
+                //fmt.Printf("Producer finished sending broadcast msgs to ord[%d] ch[%d]: ACKs  %9d  (100%%)\n", ordererIndex, channelIndex, *txSentCntr_p)
         } else {
                 fmt.Printf("Producer finished sending broadcast msgs to ord[%d] ch[%d]: ACKs  %9d  NACK %d  Other %d\n", ordererIndex, channelIndex, *txSentCntr_p, *txSentFailureCntr_p, txReq - *txSentFailureCntr_p - *txSentCntr_p)
+        }
+        producers_wg.Done()
+}
+
+func startProducerMaster(serverAddr string, chainIDs *[]string, ordererIndex int, txReq_p *[]int64, txSentCntr_p *[]int64, txSentFailureCntr_p *[]int64) {
+        // This function creates a grpc connection to one orderer,
+        // creates multiple clients (one per numChannels) for that one orderer,
+        // and sends a TX to all channels repeatedly until no more to send.
+        var txReqTotal int64 = 0
+        var txMax int64 = 0
+        for c := 0; c < numChannels; c++ {
+                txReqTotal += (*txReq_p)[c]
+                if txMax < (*txReq_p)[c] { txMax = (*txReq_p)[c] }
+        }
+        conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
+        defer func() {
+          _ = conn.Close()
+        }()
+        if err != nil {
+                fmt.Printf("Error creating connection for MasterProducer for ord[%d], err: %v\n", ordererIndex, err)
+                return
+        }
+        client, err := ab.NewAtomicBroadcastClient(conn).Broadcast(context.TODO())
+        if err != nil {
+                fmt.Printf("Error creating MasterProducer for ord[%d], err: %v\n", ordererIndex, err)
+                return
+        }
+        fmt.Printf("Started MasterProducer to send %d TXs to ord[%d] srvr=%s distributed across all channels\n", txReqTotal, ordererIndex, serverAddr)
+
+        // create the broadcast clients for every channel on this orderer
+        bc := make ([]*broadcastClient, numChannels)
+        for c := 0; c < numChannels; c++ {
+                bc[c] = newBroadcastClient(client, (*chainIDs)[c])
+        }
+
+        first_err := false
+        for i := int64(0); i < txMax; i++ {
+                // send one TX to every broadcast client (i.e. one TX on each channel)
+                for c := 0; c < numChannels; c++ {
+                        if i < (*txReq_p)[c] { // if more TXs to send on this channel
+                                bc[c].broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
+                                err = bc[c].getAck()
+                                if err == nil {
+                                        (*txSentCntr_p)[c]++         // txSent[ordererIndex][channelIndex]++
+                                } else {
+                                        (*txSentFailureCntr_p)[c]++
+                                        if !first_err {
+                                                first_err = true
+                                                fmt.Printf("Broadcast error on TX %d (the first error for MasterProducer on ord[%d] ch[%d] channelID=%s); err: %v\n", i+1, ordererIndex, c, (*chainIDs)[c], err)
+                                        }
+                                }
+                        }
+                }
+        }
+        if err != nil {
+                fmt.Printf("Broadcast error on last TX %d of MasterProducer on ord[%d] ch[%d]: %v\n", txReqTotal, ordererIndex, numChannels-1, err)
+        }
+        var txSentTotal int64 = 0
+        var txSentFailTotal int64 = 0
+        for c := 0; c < numChannels; c++ {
+                txSentTotal += (*txSentCntr_p)[c]
+                txSentFailTotal += (*txSentFailureCntr_p)[c]
+        }
+        if txReqTotal == txSentTotal {
+                fmt.Printf("MasterProducer finished sending broadcast msgs to all channels on ord[%d]: ACKs  %9d  (100%%)\n", ordererIndex, txSentTotal)
+        } else {
+                fmt.Printf("MasterProducer finished sending broadcast msgs to all channels on ord[%d]: ACKs  %9d  NACK %d  Other %d\n", ordererIndex, txSentTotal, txSentFailTotal, txReqTotal - txSentTotal - txSentFailTotal)
         }
         producers_wg.Done()
 }
@@ -338,33 +440,38 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
 
         // Note: we must remove the orderers (docker containers) to clean up the network; otherwise
         // the totalTxRecv and totalBlockRecv counts would include counts from earlier tests, since
-        // ALL the ordered blocks that have accumulated in the orderer will be reported (and
-        // not just the ones from this test with this set of producers/consumers).
-        // Note: there would be ONLY ONE genesis block for the orderer, for all the tests combined - not one for each test.
+        // ALL the ordered blocks that have accumulated in the orderer will be delivered and reported
+        // (and not just the ones from this test with this set of producers/consumers).
+        // Also note, in that case, there would be ONLY ONE genesis block for the orderer, for
+        // all the tests combined - not one for each test.
 }
 
-func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool) (successResult bool, resultStr string) {
+func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool) (successResult bool, resultStr string) {
         var passFailStr string = "FAILED"
         successResult = false
         resultStr = ""
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
-        fmt.Println("PRODUCERS  OrdererIndx ChannelIndx   TX Target         ACK        NACK")
+        fmt.Println("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals of numOrdIdx numChanIdx numPRODUCERs:", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels)
+        fmt.Println("PRODUCERS   OrdererIdx  ChannelIdx   TX Target         ACK        NACK")
         for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
-                        //fmt.Println("PRODUCER for ord",i,"ch",j," TX Requested:",countToSend[i][j]," TX Send ACKs:",txSent[i][j]," TX Send NACKs:",txSentFailures[i][j])
-                        fmt.Printf("%22d%12d%12d%12d%12d\n",i,j,countToSend[i][j],txSent[i][j],txSentFailures[i][j])
+                        if (i < 3 && j < 3) || txSentFailures[i][j] > 0 || countToSend[i][j] != txSent[i][j] + txSentFailures[i][j] {
+                                fmt.Printf("%22d%12d%12d%12d%12d\n",i,j,countToSend[i][j],txSent[i][j],txSentFailures[i][j])
+                        }
                 }
         }
 
         // for each consumer print the ordererIndex & channel, the num blocks and the num transactions received/delivered
-        fmt.Println("CONSUMERS  OrdererIndx ChannelIndx     Batches         TXs")
+        fmt.Println("Print only the first 3 chans of only the first 3 ordererIdx (and the last ordererIdx if masterSpy is present), and any others ONLY IF they differ.\nTotals of numOrdIdx numChanIdx numCONSUMERS:", numOrdsToWatch, numChannels, numOrdsToWatch*numChannels)
+        fmt.Println("CONSUMERS   OrdererIdx  ChannelIdx     Batches         TXs")
         for k := 0; k < numOrdsToWatch; k++ {
                 for l := 0; l < numChannels; l++ {
-                        //fmt.Println("CONSUMER for ord",k,"ch",l," Blocks:",blockRecv[k][l]," Transactions:",txRecv[k][l])
-                        // Subtract one from the received Block count and TX count, to ignore the genesis block
-                        // (we already ignore genesis blocks when we compute the totals in totalTxRecv[n] , totalBlockRecv[n])
-                        fmt.Printf("%22d%12d%12d%12d\n",k,l,blockRecv[k][l]-1,txRecv[k][l]-1)
+                        if (l < 3 && (k < 3 || (masterSpy && k==numOrdsInNtwk-1))) || blockRecv[k][l] != blockRecv[k][0] || txRecv[k][l] != txRecv[k][0] {
+                                // Subtract one from the received Block count and TX count, to ignore the genesis block
+                                // (we already ignore genesis blocks when we compute the totals in totalTxRecv[n] , totalBlockRecv[n])
+                                fmt.Printf("%22d%12d%12d%12d\n",k,l,blockRecv[k][l]-1,txRecv[k][l]-1)
+                        }
                 }
         }
 
@@ -416,8 +523,8 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
 // Function:    ote() - the Orderer Test Engine
 // Outputs:     print report to stdout with lots of counters
 // Returns:     passed bool, resultSummary string
-func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed bool, resultSummary string) {
-        testformat := fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d", txs, chans, orderers, ordType, kbs)
+func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeClientsMode bool, masterSpy bool ) (passed bool, resultSummary string) {
+        testformat := fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy)
         fmt.Println("\nIn ote(), args: ", testformat)
         passed = false
         resultSummary = "Test Not Completed: INPUT ERROR: "
@@ -451,9 +558,20 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
 
         // Others, which are dependent on the arguments:
         //
-        numProducers = numOrdsInNtwk * numChannels
-        numConsumers = numOrdsInNtwk * numChannels
-        numOrdsToWatch = numOrdsInNtwk               // watch every orderer to verify they are all delivering the same
+        numOrdsToWatch = numOrdsInNtwk    // Watch every orderer to verify they are all delivering the same.
+        if masterSpy { numOrdsToWatch++ } // We are not creating another orderer here, but we do need
+                                          // another set of counters; the masterSpy will be created for
+                                          // this test to watch every channel on an orderer - so that means
+                                          // one orderer is being watched twice
+        if optimizeClientsMode {
+                // use only one MasterProducer and one MasterConsumer on each orderer
+                numProducers = numOrdsInNtwk
+                numConsumers = numOrdsInNtwk
+        } else {
+                // one Producer and one Consumer for EVERY channel on each orderer
+                numProducers = numOrdsInNtwk * numChannels
+                numConsumers = numOrdsInNtwk * numChannels
+        }
 
 
         // Each producer sends TXs to one channel on one orderer, and increments its own counters for
@@ -495,9 +613,6 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
 
                 sendFailCntrs := make([]int64, numChannels)     // create a counter for all the channels on one orderer
                 txSentFailures = append(txSentFailures, sendFailCntrs) // orderer-i gets a set
-
-                consumerRow := make([]*grpc.ClientConn, numChannels)
-                consumerConns = append(consumerConns, consumerRow)
         }
 
         for i := 0; i < numOrdsToWatch; i++ {  // for all orderers which we will watch/monitor for deliveries
@@ -507,6 +622,9 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
 
                 txRecvCntrs := make([]int64, numChannels)     // create a set of tx counters for each channel
                 txRecv = append(txRecv, txRecvCntrs)          // orderer-i gets a set
+
+                consumerRow := make([]*grpc.ClientConn, numChannels)
+                consumerConns = append(consumerConns, consumerRow)
         }
 
         totalTxRecv    = make([]int64, numOrdsToWatch)  // create counter for each orderer, for total tx received (for all channels)
@@ -540,11 +658,26 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
 
         for ord := 0; ord < numOrdsToWatch; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
-                for c := 0 ; c < numChannels ; c++ {
-                        go startConsumer(serverAddr, channelIDs[c], ord, c, &(txRecv[ord][c]), &(blockRecv[ord][c]), &consumerConns)
+                if masterSpy && ord == numOrdsToWatch-1 {
+                        // Special case: this is the last row of counters, added (and incremented numOrdsToWatch) for the masterSpy
+                        // to use to watch the first orderer for deliveries, on all channels. This will be a duplicate Consumer
+                        // (it is the second one monitoring the first orderer), so we need to reuse the first port.
+                        serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort)
+                        go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
+                } else
+                if optimizeClientsMode {
+                        // create just one Consumer to receive all deliveries (on all channels) on an orderer
+                        go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
+                } else {
+                        // normal mode: create a unique consumer client go thread for each channel on each orderer
+                        for c := 0 ; c < numChannels ; c++ {
+                                go startConsumer(serverAddr, channelIDs[c], ord, c, &(txRecv[ord][c]), &(blockRecv[ord][c]), &(consumerConns[ord][c]))
+                        }
                 }
+
         }
 
+        fmt.Println("Finished creating all CONSUMERS clients")
         time.Sleep(5 * time.Second)
         defer cleanNetwork(&consumerConns)
 
@@ -552,18 +685,30 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         // now that the orderer service network is running, and the consumers are watching for deliveries,
         // we can start clients which will broadcast the specified number of msgs to their associated orderers
 
+        if optimizeClientsMode {
+                producers_wg.Add(numOrdsInNtwk)
+        } else {
+                producers_wg.Add(numProducers)
+        }
         sendStart := time.Now().Unix()
-        producers_wg.Add(numProducers)
-        for ord := 0; ord < numOrdsInNtwk; ord++ {
+        for ord := 0; ord < numOrdsInNtwk; ord++ {    // on each orderer:
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, config.General.ListenPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
-                        countToSend[ord][c]= numTxToSend / int64(numProducers)
-                        if c==0 && ord==0 { countToSend[ord][c] += numTxToSend % int64(numProducers) }
-                        go startProducer(serverAddr, channelIDs[c], ord, c, countToSend[ord][c], &(txSent[ord][c]), &(txSentFailures[ord][c]))
-                        time.Sleep(2 * time.Second)
+                        countToSend[ord][c] = numTxToSend / int64(numOrdsInNtwk * numChannels)
+                        if c==0 && ord==0 { countToSend[ord][c] += numTxToSend % int64(numOrdsInNtwk * numChannels) }
+                }
+                if optimizeClientsMode {
+                        // create one Producer for all channels on this orderer
+                        go startProducerMaster(serverAddr, &channelIDs, ord, &(countToSend[ord]), &(txSent[ord]), &(txSentFailures[ord]))
+                } else {
+                        // normal mode: create a unique consumer client go thread for each channel
+                        for c := 0 ; c < numChannels ; c++ {
+                                go startProducer(serverAddr, channelIDs[c], ord, c, countToSend[ord][c], &(txSent[ord][c]), &(txSentFailures[ord][c]))
+                        }
                 }
         }
 
+        fmt.Println("Finished creating all PRODUCERS clients")
         producers_wg.Wait()
         fmt.Println("Send Duration (seconds):  ", time.Now().Unix() - sendStart)
         recoverStart := time.Now().Unix()
@@ -586,7 +731,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int ) (passed 
         // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchtimeout)
         fmt.Println("Recovery Duration (secs): ", time.Now().Unix() - recoverStart)
         fmt.Println("waitSecs for last batch:  ", waitSecs)
-        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch)
+        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy)
 
         return passed, resultSummary
 }
@@ -598,6 +743,8 @@ func main() {
         orderers := 1
         ordType  := "kafka"
         kbs      := 3
+        optimizeClients := false
+        addMasterSpy := false
 
         // Read env vars
         fmt.Println("\nEnvironment variables provided for this test, and corresponding values actually used for the test:")
@@ -622,5 +769,13 @@ func main() {
         if envvar != "" { kbs, _ = strconv.Atoi(envvar) }
         fmt.Printf("%-40s %s=%d\n", "OTE_KAFKABROKERS="+envvar, "kbs", kbs)
 
-        _, _ = ote( txs, chans, orderers, ordType, kbs )
+        envvar = os.Getenv("OTE_OPTIMIZE_CLIENTS")
+        if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { optimizeClients = true }
+        fmt.Printf("%-40s %s=%t\n", "OTE_OPTIMIZE_CLIENTS="+envvar, "optimizeClients", optimizeClients)
+
+        envvar = os.Getenv("OTE_MASTERSPY")
+        if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { addMasterSpy = true }
+        fmt.Printf("%-40s %s=%t\n", "OTE_MASTERSPY="+envvar, "masterSpy", addMasterSpy)
+
+        _, _ = ote( txs, chans, orderers, ordType, kbs, optimizeClients, addMasterSpy )
 }
