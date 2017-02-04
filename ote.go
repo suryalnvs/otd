@@ -131,7 +131,8 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, 
                         return
                 case *ab.DeliverResponse_Block:
                         if t.Block.Header.Number > 0 {
-                            //fmt.Println("Consumer recvd a block, o c blkNum numtrans blk:", ordererIndex, channelIndex, t.Block.Header.Number, len(t.Block.Data.Data), t.Block.Data.Data)
+                                //fmt.Println("Consumer recvd a block, o c blkNum numtrans blk:", ordererIndex, channelIndex, t.Block.Header.Number, len(t.Block.Data.Data), t.Block.Data.Data)
+                                //fmt.Println("Consumer recvd a block, o c blkNum numtrans:",     ordererIndex, channelIndex, t.Block.Header.Number, len(t.Block.Data.Data))
                         }
                         *txRecvCntr_p += int64(len(t.Block.Data.Data))
                         //*blockRecvCntr_p = int64(t.Block.Header.Number) // this assumes header number is the block number; instead let's just add one
@@ -261,14 +262,14 @@ func cleanNetwork(consumerConns_p *([][]*grpc.ClientConn)) {
 
 func launchNetwork(nOrderers int, nkbs int) {
         fmt.Println("Start orderer service, using docker-compose")
-        /*if (nOrderers == 1) {
-        _ = executeCmd("docker-compose up -d")
+        /*
+        if (nOrderers == 1) {
+          _ = executeCmd("docker-compose up -d")
         } else {
-        _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
-        }*/
+          _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
+        }
+        */
         cmd := fmt.Sprintf("./driver.sh create 1 %d %d level", nOrderers, nkbs)
-
-        //_ = exec.Command("/bin/sh", "-c", cmd).Output()
         executeCmd(cmd)
         executeCmdAndDisplay("docker ps -a")
 }
@@ -457,25 +458,33 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         resultStr = ""
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
-        fmt.Println("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals of numOrdIdx numChanIdx numPRODUCERs:", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels)
+        fmt.Println("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals of numOrdInNtwk numChan numPRODUCERs:", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels)
         fmt.Println("PRODUCERS   OrdererIdx  ChannelIdx   TX Target         ACK        NACK")
         for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
                         if (i < 3 && j < 3) || txSentFailures[i][j] > 0 || countToSend[i][j] != txSent[i][j] + txSentFailures[i][j] {
                                 fmt.Printf("%22d%12d%12d%12d%12d\n",i,j,countToSend[i][j],txSent[i][j],txSentFailures[i][j])
+                        } else if (i < 3 && j == 3) {
+                                fmt.Printf("%34s\n","...")
+                        } else if (i == 3 && j == 0) {
+                                fmt.Printf("%22s\n","...")
                         }
                 }
         }
 
         // for each consumer print the ordererIndex & channel, the num blocks and the num transactions received/delivered
-        fmt.Println("Print only the first 3 chans of only the first 3 ordererIdx (and the last ordererIdx if masterSpy is present), and any others ONLY IF they differ.\nTotals of numOrdIdx numChanIdx numCONSUMERS:", numOrdsToWatch, numChannels, numOrdsToWatch*numChannels)
+        fmt.Println("Print only the first 3 chans of only the first 3 ordererIdx (and the last ordererIdx if masterSpy is present), plus any others that look wrong.\nTotals of numOrdIdx numChanIdx numCONSUMERS:", numOrdsToWatch, numChannels, numOrdsToWatch*numChannels)
         fmt.Println("CONSUMERS   OrdererIdx  ChannelIdx     Batches         TXs")
-        for k := 0; k < numOrdsToWatch; k++ {
-                for l := 0; l < numChannels; l++ {
-                        if (l < 3 && (k < 3 || (masterSpy && k==numOrdsInNtwk-1))) || blockRecv[k][l] != blockRecv[k][0] || txRecv[k][l] != txRecv[k][0] {
+        for i := 0; i < numOrdsToWatch; i++ {
+                for j := 0; j < numChannels; j++ {
+                        if (j < 3 && (i < 3 || (masterSpy && i==numOrdsInNtwk-1))) || (i>1 && (blockRecv[i][j] != blockRecv[1][j] || txRecv[1][j] != txRecv[1][j])) {
                                 // Subtract one from the received Block count and TX count, to ignore the genesis block
                                 // (we already ignore genesis blocks when we compute the totals in totalTxRecv[n] , totalBlockRecv[n])
-                                fmt.Printf("%22d%12d%12d%12d\n",k,l,blockRecv[k][l]-1,txRecv[k][l]-1)
+                                fmt.Printf("%22d%12d%12d%12d\n",i,j,blockRecv[i][j]-1,txRecv[i][j]-1)
+                        } else if (i < 3 && j == 3) {
+                                fmt.Printf("%34s\n","...")
+                        } else if (i == 3 && j == 0) {
+                                fmt.Printf("%22s\n","...")
                         }
                 }
         }
@@ -649,20 +658,23 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
 
         var channelIDs []string
         channelIDs = make([]string, numChannels)     // create a slice of channelIDs
+        // TODO (after FAB-2001 is fixed) - Remove the if-then clause.
+        // Due to FAB-2001 bug, we cannot test with multiple orderers and multiple channels.
+        // Currently it will work only with single orderer and multiple channels.
+        // TEMPORARY PARTIAL SOLUTION: To test multiple orderers with a single channel,
+        // use hardcoded TestChainID and skip creating any channels.
+      if numChannels == 1 && numOrdsInNtwk > 1 {
+              channelIDs[0] = provisional.TestChainID
+              fmt.Printf("Using DEFAULT channelID = %s\n", channelIDs[0])
+      } else {
+        fmt.Printf("Using %d new channelIDs, e.g. testchan00023\n", numChannels)
         for c:=0; c < numChannels; c++ {
-               //channelIDs[c] = fmt.Sprintf("testchan%05d", c)
-               // TODO - Since the above statement will not work, just use the hardcoded TestChainID.
-               // (We cannot just make up names; instead we must ensure the IDs are the same ones
-               // added/created in the launched network itself).
-               // And for now we support only one channel.
-               // That is all that will make sense numerically, since any consumers for multiple channels
-               // on a single orderer would see duplicates since they are arriving with the same TestChainID.
-               channelIDs[c] = provisional.TestChainID
-               //cmd := fmt.Sprintf("cd ../.. && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:7050 peer channel create -c %s",channelIDs[c])
-               //cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:5005 peer channel create -c %s",channelIDs[c])
-               //executeCmdAndDisplay(cmd)
-               //_ = executeCmd(cmd)
+                channelIDs[c] = fmt.Sprintf("testchan%05d", c)
+                cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:%d peer channel create -c %s", ordStartPort, channelIDs[c])
+                _ = executeCmd(cmd)
+                //executeCmdAndDisplay(cmd)
         }
+      }
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // start threads for a consumer to watch each channel on all (the specified number of) orderers.
@@ -721,7 +733,11 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 }
         }
 
-        fmt.Println("Finished creating all PRODUCERS clients")
+        if optimizeClientsMode {
+                fmt.Printf("Finished creating all %d MASTER-PRODUCERs\n", numOrdsInNtwk)
+        } else {
+                fmt.Printf("Finished creating all %d PRODUCERs\n", numOrdsInNtwk * numChannels)
+        }
         producers_wg.Wait()
         fmt.Println("Send Duration (seconds):  ", time.Now().Unix() - sendStart)
         recoverStart := time.Now().Unix()
