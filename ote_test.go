@@ -36,30 +36,48 @@ func Test_100TX_1ch_1ord_Solo(t *testing.T) {
         if !passResult { t.Fail() }
 }
 */
-
-func Test_12TX_1ch_1ord_kafka_1kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(12, 1, 1, "kafka", 1 )
+func Test_10000TX_1ch_1ord_solo_0kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(10000, 1, 1, "solo", 0, false, false )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-func Test_12TX_1ch_3ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(12, 1, 3, "kafka", 3 )
+// TODO Test for batchsize 500 with 1 solo orderer 10000 transactions
+// TODO Test for batchsize 500 with 1 kafka orderer 10000 transactions
+// TODO Test for batchsize 500 with 3 kafka orderers, 3 kafka brokers, 3 producers per orderer-channel 1000000 transactions
+
+func Test_1000000TX_1ch_1ord_kafka_1kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 1, 1, "kafka", 1, false, false )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-func Test_4TX_3ch_1ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(4, 3, 1, "kafka", 3 )
+func Test_1000000TX_1ch_3ord_kafka_1kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 1, 3, "kafka", 1, false, false )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-func Test_8TX_2ch_3ord_kafka_3kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(8, 2, 3, "kafka", 3 )
+func Test_1000000TX_1ch_1ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 1, 1, "kafka", 3, false, false )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-/*
-func Test_10000TX_3ch_3ord_kafka_9kbrokers(t *testing.T) {
-        passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 9 )
+func Test_1000000TX_1ch_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 1, 3, "kafka", 3, false, false )
         if !passResult { t.Error(finalResultSummaryString) }
 }
-*/
+
+func Test_1000000TX_3ch_3ord_kafka_3kbrokers(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 3, 3, "kafka", 3, false, true )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_1000000TX_100ch_1ord_kafka_3kbrokers(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 100, 1, "kafka", 3, false, true )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+func Test_1000000TX_100ch_3ord_kafka_3kbrokers(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 100, 3, "kafka", 3, false, true )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+// TODO Test for batchsize 500 with 3 kafka orderers, 3 kafka brokers, 3 producers per orderer-channel 1000000 transactions with masterSpy
+// TODO Test for batchsize 500 with 3 kafka orderers, 3 kafka brokers, 3 producers per orderer-channel 1000000 transactions with masterSpy
