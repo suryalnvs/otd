@@ -73,19 +73,21 @@ var logEnabled bool
 var logFile *os.File
 
 func InitLogger(fileName string) {
-        layout := "Jan_02_2006"
-        // Format Now with the layout const.
-        t := time.Now()
-        res := t.Format(layout)
-        var err error
-        logFile, err = os.OpenFile(fileName+"-"+res+".log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-        if err != nil {
-                panic(fmt.Sprintf("error opening file: %s", err))
+        if !logEnabled {
+                layout := "Jan_02_2006"
+                // Format Now with the layout const.
+                t := time.Now()
+                res := t.Format(layout)
+                var err error
+                logFile, err = os.OpenFile(fileName+"-"+res+".log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+                if err != nil {
+                        panic(fmt.Sprintf("error opening file: %s", err))
+                }
+                logEnabled = true
+                log.SetOutput(logFile)
+                //log.SetFlags(log.LstdFlags | log.Lshortfile)
+                log.SetFlags(log.LstdFlags)
         }
-        logEnabled = true
-        log.SetOutput(logFile)
-        //log.SetFlags(log.LstdFlags | log.Lshortfile)
-        log.SetFlags(log.LstdFlags)
 }
 
 func Logger(printStmt string) {
@@ -485,7 +487,8 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
         // all the tests combined - not one for each test.
 }
 
-func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool) (successResult bool, resultStr string) {
+func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool) (successResult bool, resultStr string) {
+
         var passFailStr string = "FAILED"
         successResult = false
         resultStr = ""
@@ -526,8 +529,8 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         Logger(fmt.Sprintf("Total TX broadcasts Requested to Send %9d", numTxToSendTotal))
         Logger(fmt.Sprintf("Total TX broadcasts send success ACK  %9d", totalNumTxSent))
         Logger(fmt.Sprintf("Total TX broadcasts sendFailed - NACK %9d", totalNumTxSentFailures))
-        Logger(fmt.Sprintf("Total deliveries Received TX Count    %9d", totalTxRecv[0]))
-        Logger(fmt.Sprintf("Total deliveries Received Blocks      %9d", totalBlockRecv[0]))
+        Logger(fmt.Sprintf("Total deliveries received TX Count    %9d", totalTxRecv[0]))
+        Logger(fmt.Sprintf("Total deliveries received Blocks      %9d", totalBlockRecv[0]))
         Logger(fmt.Sprintf("Total LOST transactions               %9d", totalNumTxSent + totalNumTxSentFailures - totalTxRecv[0] ))
 
         // Check for differences on the deliveries from the orderers. These are probably errors -
@@ -560,6 +563,35 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
                 resultStr += "BAD! Some ACKed TX were LOST by orderer service! "
         }
 
+        ////////////////////////////////////////////////////////////////////////
+        //
+        // Before we declare success, let's check some more things...
+        //
+
+        // Check the totals to verify if the number of blocks on each channel
+        // is appropriate for the given batchSize and number of transactions sent
+        for c := 0; c < numChannels; c++ {
+                var chanSentTotal int64 = 0
+                for ord := 0; ord < numOrdsInNtwk; ord++ {
+                        chanSentTotal += txSent[ord][c]
+                }
+                expectedBlocksOnChan := chanSentTotal / batchSize
+                if chanSentTotal % batchSize > 0 { expectedBlocksOnChan++ }
+                if expectedBlocksOnChan != totalBlockRecv[0] {
+                        successResult = false
+                        passFailStr = "FAILED"
+                        Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on channel=%d txSent=%d BatchSize=%d", totalBlockRecv[0], expectedBlocksOnChan, c, chanSentTotal, batchSize))
+                } else {
+                        Logger(fmt.Sprintf("block count %d is as expected on channel=%d txSent=%d BatchSize=%d", totalBlockRecv[0], expectedBlocksOnChan, c, chanSentTotal, batchSize))
+                }
+        }
+
+ //     TODO - Verify the contents of the last block of transactions. Since we do not know
+ //            exactly what should be in the block, then at least we can do:
+ //            for each channel, verify if the block delivered from each orderer is the same
+ //            (i.e. contains the same Data bytes (transactions) in the last block)
+
+
         // print output result and counts : overall summary
         resultStr += fmt.Sprintf("Result=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
         Logger(fmt.Sprintf(resultStr))
@@ -570,19 +602,32 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
 // Function:    ote() - the Orderer Test Engine
 // Outputs:     print report to stdout with lots of counters
 // Returns:     passed bool, resultSummary string
-func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeClientsMode bool, masterSpy bool ) (passed bool, resultSummary string) {
-        Logger(fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy))
+func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeClientsMode bool, masterSpy bool, prodPerCh int ) (passed bool, resultSummary string) {
+
+        InitLogger("ote")
+        defer CloseLogger()
+
+        Logger(fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
         passed = false
         resultSummary = "Test Not Completed: INPUT ERROR: "
 
         config := config.Load()  // establish the default configuration from yaml files
-        ordererType = config.Genesis.OrdererType
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Check parameters and/or env vars to see if user wishes to override default config parms:
+        ////////////////////////////////////////////////////////////////////////////////////////////
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // Arguments to override configuration parameter values in yaml file:
 
+        // batchSize isn't an argument of ote(), but it may be overridden on command line...
+        batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
+        envvar := os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT")
+        if envvar != "" { batchsz, _ := strconv.Atoi(envvar); batchSize = int64(batchsz) }
+        Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=%d", batchSize))
+
+        // ordererType
+        ordererType = config.Genesis.OrdererType
         if ordType != "" {
                 ordererType = ordType
         } else {
@@ -596,12 +641,18 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 }
         } else { numKBrokers = 0 }
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // Arguments for OTE settings for test variations:
 
         if txs > 0                { numTxToSend = txs   }      else { return passed, resultSummary + "number of transactions must be > 0" }
         if chans > 0              { numChannels = chans }      else { return passed, resultSummary + "number of channels must be > 0" }
         if orderers > 0           { numOrdsInNtwk = orderers } else { return passed, resultSummary + "number of orderers in network must be > 0" }
+        if prodPerCh != 1 {
+                Logger(fmt.Sprintf("Multiple producersPerCh (%d) is NOT SUPORTED yet. Using 1.", prodPerCh))
+                prodPerCh = 1
+        }
 
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // Others, which are dependent on the arguments:
         //
         numOrdsToWatch = numOrdsInNtwk    // Watch every orderer to verify they are all delivering the same.
@@ -792,7 +843,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchtimeout)
         Logger(fmt.Sprintf("Recovery Duration (secs):%4d", time.Now().Unix() - recoverStart))
         Logger(fmt.Sprintf("waitSecs for last batch: %4d", waitSecs))
-        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy)
+        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy)
 
         return passed, resultSummary
 }
@@ -809,6 +860,8 @@ func main() {
         kbs      := 3
         optimizeClients := false
         addMasterSpy := false
+        producersPerCh := 1
+        //listenersPerCh := 1
 
         // Read env vars
         Logger("\nEnvironment variables provided for this test, and corresponding values actually used for the test:")
@@ -841,7 +894,9 @@ func main() {
         if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { addMasterSpy = true }
         Logger(fmt.Sprintf("%-40s %s=%t", "OTE_MASTERSPY="+envvar, "masterSpy", addMasterSpy))
 
-        _, _ = ote( txs, chans, orderers, ordType, kbs, optimizeClients, addMasterSpy )
+        envvar = os.Getenv("OTE_PRODUCERS_PER_CHANNEL")
+        if envvar != "" { producersPerCh, _ = strconv.Atoi(envvar) }
+        Logger(fmt.Sprintf("%-40s %s=%d", "OTE_PRODUCERS_PER_CHANNEL="+envvar, "producersPerCh", producersPerCh))
 
-        CloseLogger()
+        _, _ = ote( txs, chans, orderers, ordType, kbs, optimizeClients, addMasterSpy, producersPerCh)
 }
