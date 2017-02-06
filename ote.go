@@ -494,7 +494,9 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         resultStr = ""
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
-        Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals numOrdInNtwk=%d numChan=%d numPRODUCERs=%d", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels))
+        if numOrdsInNtwk > 3 || numChannels > 3 {
+                Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals numOrdInNtwk=%d numChan=%d numPRODUCERs=%d", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels))
+        }
         Logger("PRODUCERS   OrdererIdx  ChannelIdx   TX Target         ACK        NACK")
         for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
@@ -509,7 +511,9 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         }
 
         // for each consumer print the ordererIndex & channel, the num blocks and the num transactions received/delivered
-        Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx (and the last ordererIdx if masterSpy is present), plus any others that look wrong.\nTotals numOrdIdx=%d numChanIdx=%d numCONSUMERS=%d", numOrdsToWatch, numChannels, numOrdsToWatch*numChannels))
+        if numOrdsToWatch > 3 || numChannels > 3 {
+                Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx (and the last ordererIdx if masterSpy is present), plus any others that contain failures.\nTotals numOrdIdx=%d numChanIdx=%d numCONSUMERS=%d", numOrdsToWatch, numChannels, numOrdsToWatch*numChannels))
+        }
         Logger("CONSUMERS   OrdererIdx  ChannelIdx     Batches         TXs")
         for i := 0; i < numOrdsToWatch; i++ {
                 for j := 0; j < numChannels; j++ {
@@ -577,12 +581,14 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
                 }
                 expectedBlocksOnChan := chanSentTotal / batchSize
                 if chanSentTotal % batchSize > 0 { expectedBlocksOnChan++ }
-                if expectedBlocksOnChan != totalBlockRecv[0] {
-                        successResult = false
-                        passFailStr = "FAILED"
-                        Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on channel=%d txSent=%d BatchSize=%d", totalBlockRecv[0], expectedBlocksOnChan, c, chanSentTotal, batchSize))
-                } else {
-                        Logger(fmt.Sprintf("block count %d is as expected on channel=%d txSent=%d BatchSize=%d", totalBlockRecv[0], expectedBlocksOnChan, c, chanSentTotal, batchSize))
+                for ord := 0; ord < numOrdsToWatch; ord++ {
+                        if expectedBlocksOnChan != blockRecv[ord][c] - 1 { // ignore genesis block
+                                successResult = false
+                                passFailStr = "FAILED"
+                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d chanIndx=%d, txSent=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan, ord, c, chanSentTotal, batchSize))
+                        } else {
+                                Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d chanIndx=%d txSent=%d BatchSize=%d", expectedBlocksOnChan, ord, c, chanSentTotal, batchSize))
+                        }
                 }
         }
 
@@ -593,7 +599,7 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
 
 
         // print output result and counts : overall summary
-        resultStr += fmt.Sprintf("Result=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv)
+        resultStr += fmt.Sprintf("Result=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d numChannels=%d batchSize=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv, numChannels, batchSize)
         Logger(fmt.Sprintf(resultStr))
 
         return successResult, resultStr

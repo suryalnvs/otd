@@ -32,38 +32,27 @@ func Test_1TX_1ch_1ord_Solo(t *testing.T) {
 
 // 77
 // 78 = 77 with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
-func Test_10000TX_1ch_1ord_solo(t *testing.T) {
+func Test_10000TX_1ch_1ord_solo_batchIT(t *testing.T) {
         fmt.Println("Send 10,000 TX on 1 channel to 1 Solo orderer")
-        passResult, finalResultSummaryString := ote(10000, 1, 1, "solo", 0, false, false, 1 )
-        if !passResult { t.Error(finalResultSummaryString) }
-}
-
-// 78 = 77 with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
-func Test_10000TX_1ch_1ord_solo_batch500(t *testing.T) {
-        fmt.Println("Send 10,000 TX on 1 channel to 1 Solo orderer")
-        // _ = executeCmd("export ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500")
         passResult, finalResultSummaryString := ote(10000, 1, 1, "solo", 0, false, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
 // 79
-func Test_10000TX_1ch_1ord_kafka_1kbs_batch500(t *testing.T) {
-        //_ = executeCmd("export ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500")
+func Test_10000TX_1ch_1ord_kafka_1kbs_batchIT(t *testing.T) {
         passResult, finalResultSummaryString := ote(10000, 1, 1, "kafka", 1, false, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
 // 80
-func Test_10000TX_3ch_1ord_kafka_3kbs_batch500(t *testing.T) {    // TODO - change this to 3ord, per the testplan
-        //_ = executeCmd("export ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500")
+func Test_10000TX_3ch_1ord_kafka_3kbs_batchIT(t *testing.T) {
         passResult, finalResultSummaryString := ote(10000, 3, 1, "kafka", 3, false, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
 /*
 // 81
-func Test_10000TX_3ch_3ord_kafka_3kbs_batch500_spy_3ppc(t *testing.T) {
-        //_ = executeCmd("export ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500")
+func Test_10000TX_3ch_3ord_kafka_3kbs_spy_3ppc_batchIT(t *testing.T) {
         passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 3, false, true, 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
