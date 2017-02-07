@@ -298,8 +298,7 @@ func cleanNetwork(consumerConns_p *([][]*grpc.ClientConn)) {
         _ = executeCmd("docker rm -f $(docker ps -aq)")
 }
 
-func launchNetwork(nOrderers int, nkbs int, appendFlags string) {
-        Logger(fmt.Sprintf("Launching network. nOrderers:%d nkbs:%d appendFlags:%s", nOrderers, nkbs, appendFlags))
+func launchNetwork(appendFlags string) {
         /*
         // using hardcoded docker compose (without using driver.sh tool)
         if (nOrderers == 1) {
@@ -310,6 +309,7 @@ func launchNetwork(nOrderers int, nkbs int, appendFlags string) {
         */
 
         cmd := fmt.Sprintf("./driver_GenOpt.sh -a create -p 1 %s", appendFlags)
+        Logger(fmt.Sprintf("Launching network:  %s", cmd))
         //executeCmdAndDisplay(cmd) // for debugging
         executeCmd(cmd)
 
@@ -494,11 +494,11 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
         // all the tests combined - not one for each test.
 }
 
-func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool, channelIDs *[]string) (successResult bool, resultStr string) {
+func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool, channelIDs *[]string) (successResult bool, resultStr string) {
 
         var passFailStr string = "FAILED"
         successResult = false
-        resultStr = ""
+        resultStr = "TEST " + testname
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
         if numOrdsInNtwk > 3 || numChannels > 3 {
@@ -552,18 +552,18 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
                         successResult = true
                         passFailStr = "PASSED"
                 } else {
-                        resultStr += "Orderers were INCONSISTENT: "
+                        resultStr += "Orderers were INCONSISTENT:"
                         // Every TX was successfully sent AND delivered by at least one orderer -
                         // HOWEVER all orderers that were being watched did not deliver the same counts
                 }
         } else if totalTxRecv[0] == totalNumTxSent + totalNumTxSentFailures {
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
-                        resultStr += "Every ACked TX was delivered, but failures occurred: "
+                        resultStr += "Every ACked TX was delivered, but failures occurred:"
                 } else {
-                        resultStr += "Orderers were INCONSISTENT: Every ACked TX was delivered, but failures occurred: "
+                        resultStr += "Orderers were INCONSISTENT: Every ACked TX was delivered, but failures occurred:"
                 }
         } else {
-                resultStr += "BAD! Some ACKed TX were LOST by orderer service! "
+                resultStr += "BAD! Some ACKed TX were LOST by orderer service!"
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -612,23 +612,23 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         Logger(fmt.Sprintf("Total deliveries received Blocks-Per-Chan    %d", expectedBlocksOnChan))
 
         // print output result and counts : overall summary
-        resultStr += fmt.Sprintf("Result=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d numChannels=%d batchSize=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv, numChannels, batchSize)
+        resultStr += fmt.Sprintf(" RESULT=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d numChannels=%d batchSize=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv, numChannels, batchSize)
         Logger(fmt.Sprintf(resultStr))
 
         return successResult, resultStr
 }
 
-// Function:    ote() - the Orderer Test Engine
+// Function:    ote - the Orderer Test Engine
 // Outputs:     print report to stdout with lots of counters
 // Returns:     passed bool, resultSummary string
-func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeClientsMode bool, masterSpy bool, prodPerCh int ) (passed bool, resultSummary string) {
+func ote( testname string, txs int64, chans int, orderers int, ordType string, kbs int, optimizeClientsMode bool, masterSpy bool, prodPerCh int ) (passed bool, resultSummary string) {
 
         InitLogger("ote")
         defer CloseLogger()
 
-        Logger(fmt.Sprintf("==========ote() args: TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
+        Logger(fmt.Sprintf("========== OTE testname=%s TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", testname, txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
         passed = false
-        resultSummary = "Test Not Completed: INPUT ERROR: "
+        resultSummary = testname + " test not completed: INPUT ERROR: "
         var launchAppendFlags string
         config := config.Load()  // establish the default configuration from yaml files
 
@@ -647,8 +647,8 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 launchAppendFlags += fmt.Sprintf(" -o %d", orderers)
         } else { return passed, resultSummary + "number of orderers in network must be > 0" }
         if prodPerCh != 1 {
-                Logger(fmt.Sprintf("Multiple producersPerCh (%d) is NOT SUPORTED yet. Using 1.", prodPerCh))
                 prodPerCh = 1
+                return passed, resultSummary + "Multiple producersPerChannel is NOT SUPPORTED yet."
         }
 
         numOrdsToWatch = numOrdsInNtwk    // Watch every orderer to verify they are all delivering the same.
@@ -687,7 +687,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 }
         } else { numKBrokers = 0 }
 
-        // batchSize is not an argument of ote(), but this config var may be overridden by setting env var.
+        // batchSize is not an argument, but this config var may be overridden by setting env var.
         batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
         envvar := os.Getenv("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT")
         if envvar != "" {
@@ -700,7 +700,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=%d", batchSize))
         }
 
-        // batchTimeout is not an argument of ote(), but this config var may be overridden by setting env var.
+        // batchTimeout is not an argument, but this config var may be overridden by setting env var.
         var batchTimeout int = int((config.Genesis.BatchTimeout).Seconds())
         envvar = os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT")
         if envvar != "" {
@@ -712,28 +712,28 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT=%d", batchTimeout))
         }
 
-        // CoreLoggingLevel is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        // CoreLoggingLevel is not an argument, but this optional config var may be overridden by setting env var.
         envvar = strings.ToUpper(os.Getenv("CORE_LOGGING_LEVEL")) // (default = not set)|CRITICAL|ERROR|WARNING|NOTICE|INFO|DEBUG
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -l %s", envvar)
                 Logger(fmt.Sprintf("Peer/CORE_LOGGING_LEVEL=%s", envvar))
         }
 
-        // CoreLedgerStateDB is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        // CoreLedgerStateDB is not an argument, but this optional config var may be overridden by setting env var.
         envvar = os.Getenv("CORE_LEDGER_STATE_STATEDATABASE")  // goleveldb | CouchDB
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -d %s", envvar)
                 Logger(fmt.Sprintf("Peer/CORE_LEDGER_STATE_STATEDATABASE=%s", envvar))
         }
 
-        // CoreSecurityLevel is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        // CoreSecurityLevel is not an argument, but this optional config var may be overridden by setting env var.
         envvar = os.Getenv("CORE_SECURITY_LEVEL")  // 256 | 384
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -w %s", envvar)
                 Logger(fmt.Sprintf("Peer/CORE_SECURITY_LEVEL=%s", envvar))
         }
 
-        // CoreSecurityHashAlgorithm is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        // CoreSecurityHashAlgorithm is not an argument, but this optional config var may be overridden by setting env var.
         envvar = os.Getenv("CORE_SECURITY_HASHALGORITHM")  // SHA2 | SHA3
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -x %s", envvar)
@@ -807,7 +807,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         ////////////////////////////////////////////////////////////////////////////////////////////
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
 
-        launchNetwork(orderers, kbs, launchAppendFlags)
+        launchNetwork(launchAppendFlags)
         time.Sleep(10 * time.Second)
 
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -918,7 +918,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchTimeout)
         Logger(fmt.Sprintf("Recovery Duration (secs):%4d", time.Now().Unix() - recoverStart))
         Logger(fmt.Sprintf("waitSecs for last batch: %4d", waitSecs))
-        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy, &channelIDs)
+        passed, resultSummary = reportTotals(testname, numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy, &channelIDs)
 
         return passed, resultSummary
 }
@@ -973,5 +973,5 @@ func main() {
         if envvar != "" { producersPerCh, _ = strconv.Atoi(envvar) }
         Logger(fmt.Sprintf("%-40s %s=%d", "OTE_PRODUCERS_PER_CHANNEL="+envvar, "producersPerCh", producersPerCh))
 
-        _, _ = ote( txs, chans, orderers, ordType, kbs, optimizeClients, addMasterSpy, producersPerCh)
+        _, _ = ote( "<commandline>", txs, chans, orderers, ordType, kbs, optimizeClients, addMasterSpy, producersPerCh)
 }
