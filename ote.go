@@ -295,16 +295,20 @@ func cleanNetwork(consumerConns_p *([][]*grpc.ClientConn)) {
         _ = executeCmd("docker rm -f $(docker ps -aq)")
 }
 
-func launchNetwork(nOrderers int, nkbs int) {
-        Logger("Start orderer service, using docker-compose")
+func launchNetwork(nOrderers int, nkbs int, appendFlags string) {
+        Logger(fmt.Sprintf("Launching network. nOrderers:%d nkbs:%d appendFlags:%s", nOrderers, nkbs, appendFlags))
         /*
+        // using hardcoded docker compose (without using driver.sh tool)
         if (nOrderers == 1) {
           _ = executeCmd("docker-compose up -d")
         } else {
           _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
         }
         */
-        cmd := fmt.Sprintf("./driver.sh create 1 %d %d level", nOrderers, nkbs)
+
+        cmd := fmt.Sprintf("./driver.sh create 1 %d %d level ", nOrderers, nkbs)
+        //cmd := fmt.Sprintf("./driver_v2.sh -a create %s", appendFlags)
+
         executeCmd(cmd)
         executeCmdAndDisplay("docker ps -a")
 }
@@ -616,51 +620,28 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         Logger(fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
         passed = false
         resultSummary = "Test Not Completed: INPUT ERROR: "
-
+        var launchAppendFlags string
         config := config.Load()  // establish the default configuration from yaml files
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Check parameters and/or env vars to see if user wishes to override default config parms:
         ////////////////////////////////////////////////////////////////////////////////////////////
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Arguments to override configuration parameter values in yaml file:
-
-        // batchSize isn't an argument of ote(), but it may be overridden on command line...
-        batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
-        envvar := os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT")
-        if envvar != "" { batchsz, _ := strconv.Atoi(envvar); batchSize = int64(batchsz) }
-        Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=%d", batchSize))
-
-        // ordererType
-        ordererType = config.Genesis.OrdererType
-        if ordType != "" {
-                ordererType = ordType
-        } else {
-                Logger(fmt.Sprintf("Null value provided for ordererType; using value from config file: %s", ordererType))
-        }
-        if "kafka" == strings.ToLower(ordererType) {
-                if kbs > 0 {
-                        numKBrokers = kbs
-                } else {
-                        return passed, resultSummary + "number of kafka-brokers must be > 0"
-                }
-        } else { numKBrokers = 0 }
-
-        ////////////////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////////////
         // Arguments for OTE settings for test variations:
+        //////////////////////////////////////////////////////////////////////////////////
 
-        if txs > 0                { numTxToSend = txs   }      else { return passed, resultSummary + "number of transactions must be > 0" }
-        if chans > 0              { numChannels = chans }      else { return passed, resultSummary + "number of channels must be > 0" }
-        if orderers > 0           { numOrdsInNtwk = orderers } else { return passed, resultSummary + "number of orderers in network must be > 0" }
+        if txs > 0        { numTxToSend = txs   }      else { return passed, resultSummary + "number of transactions must be > 0" }
+        if chans > 0      { numChannels = chans }      else { return passed, resultSummary + "number of channels must be > 0" }
+        if orderers > 0   {
+                numOrdsInNtwk = orderers
+                launchAppendFlags += fmt.Sprintf(" -o %d", orderers)
+        } else { return passed, resultSummary + "number of orderers in network must be > 0" }
         if prodPerCh != 1 {
                 Logger(fmt.Sprintf("Multiple producersPerCh (%d) is NOT SUPORTED yet. Using 1.", prodPerCh))
                 prodPerCh = 1
         }
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Others, which are dependent on the arguments:
-        //
         numOrdsToWatch = numOrdsInNtwk    // Watch every orderer to verify they are all delivering the same.
         if masterSpy { numOrdsToWatch++ } // We are not creating another orderer here, but we do need
                                           // another set of counters; the masterSpy will be created for
@@ -676,7 +657,83 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
                 numConsumers = numOrdsInNtwk * numChannels
         }
 
+        //////////////////////////////////////////////////////////////////////////////////
+        // Arguments to override configuration parameter values in yaml file:
+        //////////////////////////////////////////////////////////////////////////////////
 
+        // ordererType
+        ordererType = config.Genesis.OrdererType
+        if ordType != "" {
+                ordererType = ordType
+        } else {
+                Logger(fmt.Sprintf("Null value provided for ordererType; using value from config file: %s", ordererType))
+        }
+        launchAppendFlags += fmt.Sprintf(" -t %s", ordererType)
+        if "kafka" == strings.ToLower(ordererType) {
+                if kbs > 0 {
+                        numKBrokers = kbs
+                        launchAppendFlags += fmt.Sprintf(" -k %d", numKBrokers)
+                } else {
+                        return passed, resultSummary + "When using kafka ordererType, number of kafka-brokers must be > 0"
+                }
+        } else { numKBrokers = 0 }
+
+        // batchSize is not an argument of ote(), but this config var may be overridden by setting env var.
+        batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
+        envvar := os.Getenv("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT")
+        if envvar != "" {
+                batchsz, err := strconv.Atoi(envvar)
+                if err != nil || batchsz <= 0 {
+                        return passed, resultSummary + fmt.Sprintf("BAD value provided for batchsize. err: %v", err)
+                }
+                batchSize = int64(batchsz)
+                launchAppendFlags += fmt.Sprintf(" -b %d", batchSize)
+                Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=%d", batchSize))
+        }
+
+        // batchTimeout is not an argument of ote(), but this config var may be overridden by setting env var.
+        batchTimeoutStr := int64(config.Genesis.BatchTimeout) // retype the uint32
+        envvar = os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT")
+        if envvar != "" {
+                launchAppendFlags += fmt.Sprintf(" -c %s", batchTimeoutStr)
+                Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT=%d", batchSize))
+        }
+
+        // CoreLoggingLevel is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        envvar = strings.ToUpper(os.Getenv("CORE_LOGGING_LEVEL")) // (default = not set)|CRITICAL|ERROR|WARNING|NOTICE|INFO|DEBUG
+        if envvar != "" {
+                launchAppendFlags += fmt.Sprintf(" -l %s", envvar)
+                Logger(fmt.Sprintf("Peer/CORE_LOGGING_LEVEL=%s", envvar))
+        }
+
+        // CoreLedgerStateDB is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        envvar = os.Getenv("CORE_LEDGER_STATE_STATEDATABASE")  // goleveldb | CouchDB
+        if envvar != "" {
+                launchAppendFlags += fmt.Sprintf(" -d %s", envvar)
+                Logger(fmt.Sprintf("Peer/CORE_LEDGER_STATE_STATEDATABASE=%s", envvar))
+        }
+
+        // CoreSecurityLevel is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        envvar = os.Getenv("CORE_SECURITY_LEVEL")  // 256 | 384
+        if envvar != "" {
+                launchAppendFlags += fmt.Sprintf(" -w %s", envvar)
+                Logger(fmt.Sprintf("Peer/CORE_SECURITY_LEVEL=%s", envvar))
+        }
+
+        // CoreSecurityHashAlgorithm is not an argument of ote(), but this optional config var may be overridden by setting env var.
+        envvar = os.Getenv("CORE_SECURITY_HASHALGORITHM")  // SHA2 | SHA3
+        if envvar != "" {
+                launchAppendFlags += fmt.Sprintf(" -x %s", envvar)
+                Logger(fmt.Sprintf("Peer/CORE_SECURITY_HASHALGORITHM=%s", envvar))
+        }
+
+/*
+  possible others:
+    core peer gossip orgLeader           true | false
+ */
+
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // Each producer sends TXs to one channel on one orderer, and increments its own counters for
         // the successfully sent Tx, and the send-failures (rejected/timeout).
         // These 2D arrays are indexed by dimensions: numOrdsInNtwk and numChannels
@@ -735,10 +792,9 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
 
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        // For now, launchNetwork() uses docker-compose. later, we will need to pass args to it so it can
         // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
 
-        launchNetwork(orderers, kbs)
+        launchNetwork(orderers, kbs, launchAppendFlags)
         time.Sleep(10 * time.Second)
 
         ////////////////////////////////////////////////////////////////////////////////////////////
