@@ -498,7 +498,7 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
 
         var passFailStr string = "FAILED"
         successResult = false
-        resultStr = "TEST " + testname
+        resultStr = "TEST " + testname + " "
 
         // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
         if numOrdsInNtwk > 3 || numChannels > 3 {
