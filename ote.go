@@ -306,10 +306,10 @@ func launchNetwork(nOrderers int, nkbs int, appendFlags string) {
         }
         */
 
-        cmd := fmt.Sprintf("./driver.sh create 1 %d %d level ", nOrderers, nkbs)
-        //cmd := fmt.Sprintf("./driver_GenOpt.sh -a create %s", appendFlags)
+        cmd := fmt.Sprintf("./driver_GenOpt.sh -a create -p 1 %s", appendFlags)
+        executeCmdAndDisplay(cmd) // for debugging
+        //executeCmd(cmd)
 
-        executeCmd(cmd)
         executeCmdAndDisplay("docker ps -a")
 }
 
@@ -491,7 +491,7 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
         // all the tests combined - not one for each test.
 }
 
-func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool) (successResult bool, resultStr string) {
+func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool, channelIDs *[]string) (successResult bool, resultStr string) {
 
         var passFailStr string = "FAILED"
         successResult = false
@@ -501,11 +501,11 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         if numOrdsInNtwk > 3 || numChannels > 3 {
                 Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals numOrdInNtwk=%d numChan=%d numPRODUCERs=%d", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels))
         }
-        Logger("PRODUCERS   OrdererIdx  ChannelIdx   TX Target         ACK        NACK")
+        Logger("PRODUCERS   OrdererIdx  ChannelIdx ChannelID              TX Target         ACK        NACK")
         for i := 0; i < numOrdsInNtwk; i++ {
                 for j := 0; j < numChannels; j++ {
                         if (i < 3 && j < 3) || txSentFailures[i][j] > 0 || countToSend[i][j] != txSent[i][j] + txSentFailures[i][j] {
-                                Logger(fmt.Sprintf("%22d%12d%12d%12d%12d",i,j,countToSend[i][j],txSent[i][j],txSentFailures[i][j]))
+                                Logger(fmt.Sprintf("%22d%12d %-20s%12d%12d%12d",i,j,(*channelIDs)[j],countToSend[i][j],txSent[i][j],txSentFailures[i][j]))
                         } else if (i < 3 && j == 3) {
                                 Logger(fmt.Sprintf("%34s","..."))
                         } else if (i == 3 && j == 0) {
@@ -518,13 +518,13 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
         if numOrdsToWatch > 3 || numChannels > 3 {
                 Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx (and the last ordererIdx if masterSpy is present), plus any others that contain failures.\nTotals numOrdIdx=%d numChanIdx=%d numCONSUMERS=%d", numOrdsToWatch, numChannels, numOrdsToWatch*numChannels))
         }
-        Logger("CONSUMERS   OrdererIdx  ChannelIdx     Batches         TXs")
+        Logger("CONSUMERS   OrdererIdx  ChannelIdx ChannelID                Batches         TXs")
         for i := 0; i < numOrdsToWatch; i++ {
                 for j := 0; j < numChannels; j++ {
                         if (j < 3 && (i < 3 || (masterSpy && i==numOrdsInNtwk-1))) || (i>1 && (blockRecv[i][j] != blockRecv[1][j] || txRecv[1][j] != txRecv[1][j])) {
                                 // Subtract one from the received Block count and TX count, to ignore the genesis block
                                 // (we already ignore genesis blocks when we compute the totals in totalTxRecv[n] , totalBlockRecv[n])
-                                Logger(fmt.Sprintf("%22d%12d%12d%12d",i,j,blockRecv[i][j]-1,txRecv[i][j]-1))
+                                Logger(fmt.Sprintf("%22d%12d %-20s%12d%12d",i,j,(*channelIDs)[j],blockRecv[i][j]-1,txRecv[i][j]-1))
                         } else if (i < 3 && j == 3) {
                                 Logger(fmt.Sprintf("%34s","..."))
                         } else if (i == 3 && j == 0) {
@@ -589,9 +589,9 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
                         if expectedBlocksOnChan != blockRecv[ord][c] - 1 { // ignore genesis block
                                 successResult = false
                                 passFailStr = "FAILED"
-                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d chanIndx=%d, txSent=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan, ord, c, chanSentTotal, batchSize))
+                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d channelIDs[%d]=%s, txSent=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan, ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
                         } else {
-                                Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d chanIndx=%d txSent=%d BatchSize=%d", expectedBlocksOnChan, ord, c, chanSentTotal, batchSize))
+                                Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d channelIDs[%d]=%s txSent=%d BatchSize=%d", expectedBlocksOnChan, ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
                         }
                 }
         }
@@ -617,7 +617,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         InitLogger("ote")
         defer CloseLogger()
 
-        Logger(fmt.Sprintf("TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
+        Logger(fmt.Sprintf("\note() args: TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
         passed = false
         resultSummary = "Test Not Completed: INPUT ERROR: "
         var launchAppendFlags string
@@ -808,13 +808,13 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         // Currently it will work only with single orderer and multiple channels.
         // TEMPORARY PARTIAL SOLUTION: To test multiple orderers with a single channel,
         // use hardcoded TestChainID and skip creating any channels.
-      if numChannels == 1 && numOrdsInNtwk > 1 {
+      if numChannels == 1 && numOrdsInNtwk >= 1 {
               channelIDs[0] = provisional.TestChainID
               Logger(fmt.Sprintf("Using DEFAULT channelID = %s", channelIDs[0]))
       } else {
-        Logger(fmt.Sprintf("Using %d new channelIDs, e.g. testchan00023", numChannels))
+        Logger(fmt.Sprintf("Using %d new channelIDs, e.g. test-chan.00023", numChannels))
         for c:=0; c < numChannels; c++ {
-                channelIDs[c] = fmt.Sprintf("testchan%05d", c)
+                channelIDs[c] = fmt.Sprintf("test-chan.%05d", c)
                 cmd := fmt.Sprintf("cd $GOPATH/src/github.com/hyperledger/fabric && CORE_PEER_COMMITTER_LEDGER_ORDERER=127.0.0.1:%d peer channel create -c %s", ordStartPort, channelIDs[c])
                 _ = executeCmd(cmd)
                 //executeCmdAndDisplay(cmd)
@@ -905,7 +905,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchtimeout)
         Logger(fmt.Sprintf("Recovery Duration (secs):%4d", time.Now().Unix() - recoverStart))
         Logger(fmt.Sprintf("waitSecs for last batch: %4d", waitSecs))
-        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy)
+        passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy, &channelIDs)
 
         return passed, resultSummary
 }

@@ -5,6 +5,58 @@ var cfgFile = process.argv[2];
 var dFile = __dirname + "/" + "docker-compose.yml";
 fs.createWriteStream(dFile);
 
+var CA=0;
+var CDB=0;
+var KAFKA=0;
+
+// Orderer environment var
+var ord_env_name=[];
+var ord_env_val=[];
+if ( process.env.ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT != null ) {
+    console.log(' ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT= ', process.env.ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT);
+    ord_env_name.push('ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT');
+    ord_env_val.push(process.env.ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT);
+}
+if ( process.env.ORDERER_GENESIS_ORDERERTYPE != null ) {
+    console.log(' ORDERER_GENESIS_ORDERERTYPE= ', process.env.ORDERER_GENESIS_ORDERERTYPE);
+    ord_env_name.push('ORDERER_GENESIS_ORDERERTYPE');
+    ord_env_val.push(process.env.ORDERER_GENESIS_ORDERERTYPE);
+    if ( process.env.ORDERER_GENESIS_ORDERERTYPE == 'kafka' ) {
+       KAFKA=1;
+    }
+}
+if ( process.env.ORDERER_GENESIS_BATCHTIMEOUT != null ) {
+    console.log(' ORDERER_GENESIS_BATCHTIMEOUT= ', process.env.ORDERER_GENESIS_BATCHTIMEOUT);
+    ord_env_name.push('ORDERER_GENESIS_BATCHTIMEOUT');
+    ord_env_val.push(process.env.ORDERER_GENESIS_BATCHTIMEOUT);
+}
+
+console.log('ord_env_name: ', ord_env_name.length, ord_env_name);
+console.log('ord_env_val: ', ord_env_val.length, ord_env_val);
+
+// Peer environment var
+var peer_env_name=[];
+var peer_env_val=[];
+if ( process.env.CORE_LOGGING_LEVEL != null ) {
+    console.log(' CORE_LOGGING_LEVEL= ', process.env.CORE_LOGGING_LEVEL);
+    peer_env_name.push('CORE_LOGGING_LEVEL');
+    peer_env_val.push(process.env.CORE_LOGGING_LEVEL);
+}
+if ( process.env.CORE_SECURITY_LEVEL != null ) {
+    console.log(' CORE_SECURITY_LEVEL= ', process.env.CORE_SECURITY_LEVEL);
+    peer_env_name.push('CORE_SECURITY_LEVEL');
+    peer_env_val.push(process.env.CORE_SECURITY_LEVEL);
+}
+if ( process.env.CORE_SECURITY_HASHALGORITHM != null ) {
+    console.log(' CORE_SECURITY_HASHALGORITHM= ', process.env.CORE_SECURITY_HASHALGORITHM);
+    peer_env_name.push('CORE_SECURITY_HASHALGORITHM');
+    peer_env_val.push(process.env.CORE_SECURITY_HASHALGORITHM);
+}
+
+console.log('peer_env_name: ', peer_env_name.length, peer_env_name);
+console.log('peer_env_val: ', peer_env_val.length, peer_env_val);
+
+//process.exit();
 console.log('network cfg: ', cfgFile);
 console.log('docker composer: ', dFile);
 
@@ -42,16 +94,14 @@ var couchdbAddr;
 var couchdbPort;
 var vp0Addr;
 var vp0Port;
-var COP=0;
-var CDB=0;
-var KAFKA=0;
 var tmp;
+var e;
 
 if ( addBroker > 0 ) {
    KAFKA=1;
 }
 
-if ( (dbType == 'couch') || (dbType == 'level') ){
+if ( (dbType == 'couchdb') || (dbType == 'goleveldb') ){
    CDB=1;
 }
 
@@ -97,7 +147,7 @@ for ( i0=0; i0<top_key.length; i0++ ) {
 
             // header 2
              if (lvl1_key[i] == 'couchdb' ) {
-                if (dbType == 'couch') {
+                if (dbType == 'couchdb') {
                 for ( v = 0; v < addVP; v++ ) {
                     tmp_name = lvl1_key[i] + v;
                     tmp_port = couchdbPort + v;
@@ -152,8 +202,8 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                             fs.appendFileSync(dFile, buff);
                             buff = '  ' + '    - ' + 'orderer' + '\n';
                             fs.appendFileSync(dFile, buff);
-                            if ( COP == 1 ) {
-                                buff = '  ' + '    - ' + 'cop' + '\n';
+                            if ( CA == 1 ) {
+                                buff = '  ' + '    - ' + 'ca' + '\n';
                                 fs.appendFileSync(dFile, buff);
                             }
                             // header 4
@@ -200,15 +250,19 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                     // header 3
                     for ( k=0; k<lvl2_key.length; k++ ) {
                         if ( (lvl2_key[k] == 'environment') ) {
-                                lvl2_obj = lvl1_obj[lvl2_key[k]];
-                                lvl3_key = Object.keys(lvl2_obj);
+                            lvl2_obj = lvl1_obj[lvl2_key[k]];
+                            lvl3_key = Object.keys(lvl2_obj);
 
-                                buff = '  ' + '  ' + lvl2_key[k] + ': ' + '\n';
-                                fs.appendFileSync(dFile, buff);
+                            buff = '  ' + '  ' + lvl2_key[k] + ': ' + '\n';
+                            fs.appendFileSync(dFile, buff);
 
                                 // header 4
                                 for ( m=0; m< lvl3_key.length; m++ ) {
-                                    if ( lvl3_key[m] == 'ORDERER_KAFKA_BROKERS' ) {
+                                    tmp = ord_env_name.indexOf( lvl3_key[m] );
+                                    if ( tmp >= 0 ) {
+                                        buff = '  ' + '    - ' + lvl3_key[m] + '=' + ord_env_val[tmp] + '\n';
+                                        fs.appendFileSync(dFile, buff);
+                                    } else if ( lvl3_key[m] == 'ORDERER_KAFKA_BROKERS' ) {
                                         if ( addBroker > 0 ) {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=[';
                                             for (n=0; n<addBroker; n++) {
@@ -220,14 +274,14 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                             buff = buff + ']' + '\n';
                                             fs.appendFileSync(dFile, buff);
                                         }
-                                    } else if ( lvl3_key[m] == 'ORDERER_GENERAL_ORDERERTYPE' ) {
-                                        if ( addBroker > 0 ) {
-                                            buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'kafka' + '\n';
-                                            fs.appendFileSync(dFile, buff);
-                                        } else {
-                                            buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'solo' + '\n';
-                                            fs.appendFileSync(dFile, buff);
-                                        }
+                                    } else if ( lvl3_key[m] == 'ORDERER_GENESIS_ORDERERTYPE' ) {
+                                            if ( addBroker > 0 ) {
+                                                buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'kafka' + '\n';
+                                                fs.appendFileSync(dFile, buff);
+                                            } else {
+                                                buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'solo' + '\n';
+                                                fs.appendFileSync(dFile, buff);
+                                            }
                                     } else if ( ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISMETHOD' ) || ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISFILE' ) ) {
                                         if ( addBroker > 0 ) {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + lvl2_obj[lvl3_key[m]] + '\n';
@@ -257,7 +311,7 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                 fs.appendFileSync(dFile, buff);
                                 tmp_port = ordererPort + v;
 
-                                buff = '  ' + '    - ' + tmp_port +':' + 7050 + '\n' ;
+                                buff = '  ' + '    - ' + tmp_port +':' + ordererPort + '\n' ;
                                 fs.appendFileSync(dFile, buff);
 
                         } else if ( (lvl2_key[k] == 'depends_on') ) {
@@ -392,15 +446,19 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                     // header 3
                     for ( k=0; k<lvl2_key.length; k++ ) {
                         if ( (lvl2_key[k] == 'environment') ) {
-                                lvl2_obj = lvl1_obj[lvl2_key[k]];
-                                lvl3_key = Object.keys(lvl2_obj);
+                            lvl2_obj = lvl1_obj[lvl2_key[k]];
+                            lvl3_key = Object.keys(lvl2_obj);
 
-                                buff = '  ' + '  ' + lvl2_key[k] + ': ' + '\n';
-                                fs.appendFileSync(dFile, buff);
+                            buff = '  ' + '  ' + lvl2_key[k] + ': ' + '\n';
+                            fs.appendFileSync(dFile, buff);
 
                                 // header 4
                                 for ( m=0; m< lvl3_key.length; m++ ) {
-                                    if ( lvl3_key[m] == 'CORE_PEER_ID' ) {
+                                    tmp = peer_env_name.indexOf( lvl3_key[m] );
+                                    if ( tmp >= 0 ) {
+                                        buff = '  ' + '    - ' + lvl3_key[m] + '=' + peer_env_val[tmp] + '\n';
+                                        fs.appendFileSync(dFile, buff);
+                                    } else if ( lvl3_key[m] == 'CORE_PEER_ID' ) {
                                         buff = '  ' + '    - ' + lvl3_key[m] + '=' + tmp_name + '\n';
                                         fs.appendFileSync(dFile, buff);
                                     } else if ( lvl3_key[m] == 'CORE_PEER_NETWORKID' ) {
@@ -418,15 +476,15 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                             fs.appendFileSync(dFile, buff);
                                         }
                                     } else if ( lvl3_key[m] == 'CORE_LEDGER_STATE_STATEDATABASE' ) {
-                                        if (dbType == 'couch') {
+                                        if (dbType == 'couchdb') {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'CouchDB' + '\n';
                                             fs.appendFileSync(dFile, buff);
-                                        } else if (dbType == 'level') {
+                                        } else if (dbType == 'goleveldb') {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'goleveldb' + '\n';
                                             fs.appendFileSync(dFile, buff);
                                         }
                                     } else if ( lvl3_key[m] == 'CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS' ) {
-                                        if (dbType == 'couch') {
+                                        if (dbType == 'couchdb') {
                                             tmp = couchdbPort+v;
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'couchdb'+v +':'+ tmp + '\n';
                                             fs.appendFileSync(dFile, buff);
@@ -462,12 +520,12 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                             fs.appendFileSync(dFile, buff);
                             buff = '  ' + '    - ' + 'orderer0' + '\n';
                             fs.appendFileSync(dFile, buff);
-                            if (dbType == 'couch') {
+                            if (dbType == 'couchdb') {
                                 buff = '  ' + '    - ' + 'couchdb'+v + '\n';
                                 fs.appendFileSync(dFile, buff);
                             }
-                            if ( COP == 1 ) {
-                                buff = '  ' + '    - ' + 'cop' + '\n';
+                            if ( CA == 1 ) {
+                                buff = '  ' + '    - ' + 'ca' + '\n';
                                 fs.appendFileSync(dFile, buff);
                             }
                             // header 4
@@ -601,8 +659,8 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                 fs.appendFileSync(dFile, buff);
 
              } else {
-                if (lvl1_key[i] == 'cop' ) {
-                    COP=1;
+                if (lvl1_key[i] == 'ca' ) {
+                    CA=1;
                 }
                 buff = '  ' + lvl1_key[i] +':' + '\n';
                 fs.appendFileSync(dFile, buff);
