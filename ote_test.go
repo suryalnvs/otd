@@ -24,8 +24,8 @@ import (
 
 // simplest testcase
 func Test_1TX_1ch_1ord_Solo(t *testing.T) {
-        fmt.Println("Send 1 TX on 1 channel to 1 orderer of type Solo")
-        passResult, finalResultSummaryString := ote(100, 1, 1, "solo", 0, false, false, 1 )
+        fmt.Println("\nSimplest test: Send 1 TX on 1 channel to 1 Solo orderer")
+        passResult, finalResultSummaryString := ote(1, 1, 1, "solo", 0, false, false, 1 )
         t.Log(finalResultSummaryString)
         if !passResult { t.Fail() }
 }
@@ -33,7 +33,7 @@ func Test_1TX_1ch_1ord_Solo(t *testing.T) {
 // 77
 // 78 = 77 with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
 func Test_10000TX_1ch_1ord_solo_batchIT(t *testing.T) {
-        fmt.Println("Send 10,000 TX on 1 channel to 1 Solo orderer")
+        //fmt.Println("Send 10,000 TX on 1 channel to 1 Solo orderer")
         passResult, finalResultSummaryString := ote(10000, 1, 1, "solo", 0, false, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
@@ -50,13 +50,11 @@ func Test_10000TX_3ch_1ord_kafka_3kbs_batchIT(t *testing.T) {
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-/*
 // 81
 func Test_10000TX_3ch_3ord_kafka_3kbs_spy_3ppc_batchIT(t *testing.T) {
         passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 3, false, true, 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
-*/
 
 // 82
 func Test_1000000TX_1ch_1ord_kafka_1kbs(t *testing.T) {

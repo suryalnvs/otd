@@ -69,6 +69,8 @@ var numTxToSend int64 = 1               // default; the testcase may override th
                                         // A fraction will be sent by each producer - one producer for each channel for each numOrdsInNtwk
 
 var debugflag1 bool = false
+var debugflag2 bool = false
+var debugflag3 bool = false // most detailed and voluminous
 var logEnabled bool
 var logFile *os.File
 
@@ -100,9 +102,10 @@ func Logger(printStmt string) {
 }
 
 func CloseLogger() {
-        if logEnabled && logFile != nil {
+        if logFile != nil {
                 logFile.Close()
         }
+        logEnabled = false
 }
 
 type ordererdriveClient struct {
@@ -167,8 +170,8 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, 
                         return
                 case *ab.DeliverResponse_Block:
                         if t.Block.Header.Number > 0 {
-                                if debugflag1 { Logger(fmt.Sprintf("Consumer recvd a block, o %d c %d blkNum %d numtrans %d", ordererIndex, channelIndex, t.Block.Header.Number, len(t.Block.Data.Data))) }
-                                // if debugflag1 { Logger(fmt.Sprintf("blk: %v", t.Block.Data.Data)) }
+                                if debugflag2 { Logger(fmt.Sprintf("Consumer recvd a block, o %d c %d blkNum %d numtrans %d", ordererIndex, channelIndex, t.Block.Header.Number, len(t.Block.Data.Data))) }
+                                if debugflag3 { Logger(fmt.Sprintf("blk: %v", t.Block.Data.Data)) }
                         }
                         *txRecvCntr_p += int64(len(t.Block.Data.Data))
                         //*blockRecvCntr_p = int64(t.Block.Header.Number) // this assumes header number is the block number; instead let's just add one
@@ -307,8 +310,8 @@ func launchNetwork(nOrderers int, nkbs int, appendFlags string) {
         */
 
         cmd := fmt.Sprintf("./driver_GenOpt.sh -a create -p 1 %s", appendFlags)
-        executeCmdAndDisplay(cmd) // for debugging
-        //executeCmd(cmd)
+        //executeCmdAndDisplay(cmd) // for debugging
+        executeCmd(cmd)
 
         executeCmdAndDisplay("docker ps -a")
 }
@@ -476,12 +479,12 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
                 for l := 0; l < numChannels; l++ {
                         (*totalTxRecv)[k] += (*txRecv)[k][l]
                         (*totalBlockRecv)[k] += (*blockRecv)[k][l]
-                        if debugflag1 { Logger(fmt.Sprintf("in compute(): k %d l %d txRecv[k][l] %d blockRecv[k][l] %d", k , l , (*txRecv)[k][l] , (*blockRecv)[k][l] )) }
+                        if debugflag3 { Logger(fmt.Sprintf("in compute(): k %d l %d txRecv[k][l] %d blockRecv[k][l] %d", k , l , (*txRecv)[k][l] , (*blockRecv)[k][l] )) }
                 }
                 if (k>0) && (*totalTxRecv)[k] != (*totalTxRecv)[k-1] { *totalTxRecvMismatch = true }
                 if (k>0) && (*totalBlockRecv)[k] != (*totalBlockRecv)[k-1] { *totalBlockRecvMismatch = true }
         }
-        if debugflag1 { Logger(fmt.Sprintf("in compute(): totalTxRecv[]= %v, totalBlockRecv[]= %v", *totalTxRecv, *totalBlockRecv)) }
+        if debugflag2 { Logger(fmt.Sprintf("in compute(): totalTxRecv[]= %v, totalBlockRecv[]= %v", *totalTxRecv, *totalBlockRecv)) }
 
         // Note: we must remove the orderers (docker containers) to clean up the network; otherwise
         // the totalTxRecv and totalBlockRecv counts would include counts from earlier tests, since
@@ -533,14 +536,6 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
                 }
         }
 
-        Logger(fmt.Sprintf("Not counting genesis blks (1 per chan)%9d", countGenesis()))
-        Logger(fmt.Sprintf("Total TX broadcasts Requested to Send %9d", numTxToSendTotal))
-        Logger(fmt.Sprintf("Total TX broadcasts send success ACK  %9d", totalNumTxSent))
-        Logger(fmt.Sprintf("Total TX broadcasts sendFailed - NACK %9d", totalNumTxSentFailures))
-        Logger(fmt.Sprintf("Total deliveries received TX Count    %9d", totalTxRecv[0]))
-        Logger(fmt.Sprintf("Total deliveries received Blocks      %9d", totalBlockRecv[0]))
-        Logger(fmt.Sprintf("Total LOST transactions               %9d", totalNumTxSent + totalNumTxSentFailures - totalTxRecv[0] ))
-
         // Check for differences on the deliveries from the orderers. These are probably errors -
         // unless the test stopped an orderer on purpose and never restarted it, while the
         // others continued to deliver transactions. (If an orderer is restarted, then it
@@ -578,20 +573,22 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
 
         // Check the totals to verify if the number of blocks on each channel
         // is appropriate for the given batchSize and number of transactions sent
+
+        expectedBlocksOnChan := make([]int64, numChannels) // create a counter for all the channels on one orderer
         for c := 0; c < numChannels; c++ {
                 var chanSentTotal int64 = 0
                 for ord := 0; ord < numOrdsInNtwk; ord++ {
                         chanSentTotal += txSent[ord][c]
                 }
-                expectedBlocksOnChan := chanSentTotal / batchSize
-                if chanSentTotal % batchSize > 0 { expectedBlocksOnChan++ }
+                expectedBlocksOnChan[c] = chanSentTotal / batchSize
+                if chanSentTotal % batchSize > 0 { expectedBlocksOnChan[c]++ }
                 for ord := 0; ord < numOrdsToWatch; ord++ {
-                        if expectedBlocksOnChan != blockRecv[ord][c] - 1 { // ignore genesis block
+                        if expectedBlocksOnChan[c] != blockRecv[ord][c] - 1 { // ignore genesis block
                                 successResult = false
                                 passFailStr = "FAILED"
-                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d channelIDs[%d]=%s, txSent=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan, ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
+                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d channelIDs[%d]=%s, txSent=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan[c], ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
                         } else {
-                                Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d channelIDs[%d]=%s txSent=%d BatchSize=%d", expectedBlocksOnChan, ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
+                                if debugflag1 { Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d channelIDs[%d]=%s txSent=%d BatchSize=%d", expectedBlocksOnChan[c], ord, c, (*channelIDs)[c], chanSentTotal, batchSize)) }
                         }
                 }
         }
@@ -601,6 +598,18 @@ func reportTotals(numTxToSendTotal int64, countToSend [][]int64, txSent [][]int6
  //            for each channel, verify if the block delivered from each orderer is the same
  //            (i.e. contains the same Data bytes (transactions) in the last block)
 
+
+        // print some counters totals
+        Logger(fmt.Sprintf("Not counting genesis blks (1 per chan)%9d", countGenesis()))
+        Logger(fmt.Sprintf("Total TX broadcasts Requested to Send %9d", numTxToSendTotal))
+        Logger(fmt.Sprintf("Total TX broadcasts send success ACK  %9d", totalNumTxSent))
+        Logger(fmt.Sprintf("Total TX broadcasts sendFailed - NACK %9d", totalNumTxSentFailures))
+        Logger(fmt.Sprintf("Total LOST transactions               %9d", totalNumTxSent + totalNumTxSentFailures - totalTxRecv[0] ))
+        Logger(fmt.Sprintf("Total deliveries received TX          %9d", totalTxRecv[0]))
+        Logger(fmt.Sprintf("Total deliveries received Blocks      %9d", totalBlockRecv[0]))
+        Logger(fmt.Sprintf("Total deliveries received TX     (all ords)  %d", totalTxRecv))
+        Logger(fmt.Sprintf("Total deliveries received Blocks (all ords)  %d", totalBlockRecv))
+        Logger(fmt.Sprintf("Total deliveries received Blocks-Per-Chan    %d", expectedBlocksOnChan))
 
         // print output result and counts : overall summary
         resultStr += fmt.Sprintf("Result=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d numChannels=%d batchSize=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv, numChannels, batchSize)
@@ -617,7 +626,7 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         InitLogger("ote")
         defer CloseLogger()
 
-        Logger(fmt.Sprintf("\note() args: TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
+        Logger(fmt.Sprintf("==========ote() args: TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
         passed = false
         resultSummary = "Test Not Completed: INPUT ERROR: "
         var launchAppendFlags string
@@ -926,7 +935,7 @@ func main() {
         //listenersPerCh := 1
 
         // Read env vars
-        Logger("\nEnvironment variables provided for this test, and corresponding values actually used for the test:")
+        Logger("==========Environment variables provided for this test, and corresponding values actually used for the test:")
 
         envvar := os.Getenv("OTE_TXS")
         if envvar != "" { txs, _ = strconv.ParseInt(envvar, 10, 64) }
