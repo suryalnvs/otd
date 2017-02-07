@@ -701,11 +701,15 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         }
 
         // batchTimeout is not an argument of ote(), but this config var may be overridden by setting env var.
-        batchTimeoutStr := int64(config.Genesis.BatchTimeout) // retype the uint32
+        var batchTimeout int = int((config.Genesis.BatchTimeout).Seconds())
         envvar = os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT")
         if envvar != "" {
-                launchAppendFlags += fmt.Sprintf(" -c %s", batchTimeoutStr)
-                Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT=%d", batchSize))
+                if envvar != "10s" {
+                        //batchTimeout = ??? convert time.Duration to int
+                        Logger(fmt.Sprintf("Changing BATCHTIMEOUT is UNSUPPORTED. ORDERER_GENESIS_BATCHTIMEOUT=%d", batchTimeout))
+                }
+                launchAppendFlags += fmt.Sprintf(" -c %d", batchTimeout)
+                Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT=%d", batchTimeout))
         }
 
         // CoreLoggingLevel is not an argument of ote(), but this optional config var may be overridden by setting env var.
@@ -905,13 +909,13 @@ func ote( txs int64, chans int, orderers int, ordType string, kbs int, optimizeC
         // are climbing closer to the broadcast (send) counter.
 
         computeTotals(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch)
-        batchtimeout := 10
+        //batchTimeout = 10
         waitSecs := 0
-        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs <= batchtimeout) { time.Sleep(1 * time.Second); waitSecs++ }
+        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs <= batchTimeout) { time.Sleep(1 * time.Second); waitSecs++ }
 
         // Recovery Duration = time spent waiting for orderer service to finish delivering transactions,
         // after all producers finished sending them.
-        // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchtimeout)
+        // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchTimeout)
         Logger(fmt.Sprintf("Recovery Duration (secs):%4d", time.Now().Unix() - recoverStart))
         Logger(fmt.Sprintf("waitSecs for last batch: %4d", waitSecs))
         passed, resultSummary = reportTotals(numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy, &channelIDs)

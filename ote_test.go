@@ -51,14 +51,14 @@ func Test_10000TX_3ch_1ord_kafka_3kbs_batchIT(t *testing.T) {
 }
 
 // 81
-func Test_10000TX_3ch_3ord_kafka_3kbs_spy_3ppc_batchIT(t *testing.T) {
-        passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 3, false, true, 3 )
+func Test_10000TX_3ch_3ord_kafka_3kbs_3ppc_batchIT(t *testing.T) {
+        passResult, finalResultSummaryString := ote(10000, 3, 3, "kafka", 3, false, false, 3 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
 // 82
-func Test_1000000TX_1ch_1ord_kafka_1kbs(t *testing.T) {
-        passResult, finalResultSummaryString := ote(1000000, 1, 1, "kafka", 1, false, false, 1 )
+func Test_1000000TX_1ch_1ord_kafka_1kbs_spy(t *testing.T) {
+        passResult, finalResultSummaryString := ote(1000000, 1, 1, "kafka", 1, false, true, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
