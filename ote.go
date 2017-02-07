@@ -307,7 +307,7 @@ func launchNetwork(nOrderers int, nkbs int, appendFlags string) {
         */
 
         cmd := fmt.Sprintf("./driver.sh create 1 %d %d level ", nOrderers, nkbs)
-        //cmd := fmt.Sprintf("./driver_v2.sh -a create %s", appendFlags)
+        //cmd := fmt.Sprintf("./driver_GenOpt.sh -a create %s", appendFlags)
 
         executeCmd(cmd)
         executeCmdAndDisplay("docker ps -a")
