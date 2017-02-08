@@ -55,24 +55,57 @@ import (
 )
 
 
+var debugflagAPI bool = true
+var debugflag1 bool = false
+var debugflag2 bool = false
+var debugflag3 bool = false // most detailed and voluminous
+
 var producers_wg sync.WaitGroup
 var ordStartPort uint16 = 5005          // starting port used by the tool called by launchNetwork()
+var logFile *os.File
+var logEnabled bool = false
+var envvar string = ""
 var numChannels int = 1
 var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
 var numOrdsToWatch int = 1              // default set to 1; we must watch at least one orderer
 var ordererType string = "solo"         // default; the testcase may override this
 var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
+var producersPerCh int = 1              // multiple producers per channel on each orderer
 var numConsumers int = 1                // default; this will be set based on other testcase parameters
 var numProducers int = 1                // default; this will be set based on other testcase parameters
 var numTxToSend int64 = 1               // default; the testcase may override this
                                         // numTxToSend is the total number of Transactions to send;
-                                        // A fraction will be sent by each producer - one producer for each channel for each numOrdsInNtwk
+                                        // A fraction will be sent by each producer - one producer for
+                                        // each channel for each numOrdsInNtwk
 
-var debugflag1 bool = false
-var debugflag2 bool = false
-var debugflag3 bool = false // most detailed and voluminous
-var logEnabled bool
-var logFile *os.File
+// One GO thread is created for each producer and each consumer client.
+// To optimize go threads usage, to prevent running out of swap space
+// in the (laptop) test environment for tests using either numerous
+// channels or numerous producers per channel, set this bool true to
+// only create one go thread MasterProducer per orderer, which will
+// broadcast messages to all channels on one orderer. Note this option
+// works a little less efficiently on the consumer side, where we
+// share a single grpc connection but still need to use separate
+// GO threads per channel per orderer (instead of one per orderer).
+var optimizeClientsMode bool = false
+
+func resetGlobals() {
+        // when running multiple tests, e.g. from go test, reset to defaults
+        // for the parameters that could change per test.
+        // We do NOT reset things that would apply to every test, such as
+        // settings for environment variables
+        logEnabled = false
+        envvar = ""
+        numChannels = 1
+        numOrdsInNtwk = 1
+        numOrdsToWatch = 1
+        ordererType = "solo"
+        numKBrokers = 0
+        numConsumers = 1
+        numProducers = 1
+        numTxToSend = 1
+        producersPerCh = 1
+}
 
 func InitLogger(fileName string) {
         if !logEnabled {
@@ -605,11 +638,13 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
         Logger(fmt.Sprintf("Total TX broadcasts send success ACK  %9d", totalNumTxSent))
         Logger(fmt.Sprintf("Total TX broadcasts sendFailed - NACK %9d", totalNumTxSentFailures))
         Logger(fmt.Sprintf("Total LOST transactions               %9d", totalNumTxSent + totalNumTxSentFailures - totalTxRecv[0] ))
-        Logger(fmt.Sprintf("Total deliveries received TX          %9d", totalTxRecv[0]))
-        Logger(fmt.Sprintf("Total deliveries received Blocks      %9d", totalBlockRecv[0]))
-        Logger(fmt.Sprintf("Total deliveries received TX     (all ords)  %d", totalTxRecv))
-        Logger(fmt.Sprintf("Total deliveries received Blocks (all ords)  %d", totalBlockRecv))
-        Logger(fmt.Sprintf("Total deliveries received Blocks-Per-Chan    %d", expectedBlocksOnChan))
+        if successResult {
+                Logger(fmt.Sprintf("Total deliveries received TX          %9d", totalTxRecv[0]))
+                Logger(fmt.Sprintf("Total deliveries received Blocks      %9d", totalBlockRecv[0]))
+        } else {
+                Logger(fmt.Sprintf("Total deliveries received TX on each ordr      %7d", totalTxRecv))
+                Logger(fmt.Sprintf("Total deliveries received Blocks on each ordr  %7d", totalBlockRecv))
+        }
 
         // print output result and counts : overall summary
         resultStr += fmt.Sprintf(" RESULT=%s: TX Req=%d BrdcstACK=%d NACK=%d DelivBlk=%d DelivTX=%d numChannels=%d batchSize=%d", passFailStr, numTxToSendTotal, totalNumTxSent, totalNumTxSentFailures, totalBlockRecv, totalTxRecv, numChannels, batchSize)
@@ -621,16 +656,20 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
 // Function:    ote - the Orderer Test Engine
 // Outputs:     print report to stdout with lots of counters
 // Returns:     passed bool, resultSummary string
-func ote( testname string, txs int64, chans int, orderers int, ordType string, kbs int, optimizeClientsMode bool, masterSpy bool, prodPerCh int ) (passed bool, resultSummary string) {
+func ote( testname string, txs int64, chans int, orderers int, ordType string, kbs int, masterSpy bool, pPerCh int ) (passed bool, resultSummary string) {
 
+        passed = false
+        resultSummary = testname + " test not completed: INPUT ERROR: "
+        resetGlobals()
         InitLogger("ote")
         defer CloseLogger()
 
-        Logger(fmt.Sprintf("========== OTE testname=%s TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d optimizeClients=%t addMasterSpy=%t producersPerCh=%d", testname, txs, chans, orderers, ordType, kbs, optimizeClientsMode, masterSpy, prodPerCh))
-        passed = false
-        resultSummary = testname + " test not completed: INPUT ERROR: "
+        Logger(fmt.Sprintf("========== OTE testname=%s TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d addMasterSpy=%t producersPerCh=%d", testname, txs, chans, orderers, ordType, kbs, masterSpy, pPerCh))
+
+        // Establish the default configuration from yaml files - and this also
+        // picks up any variables overridden on command line or in environment
+        config := config.Load()  // establish the default configuration from yaml files,
         var launchAppendFlags string
-        config := config.Load()  // establish the default configuration from yaml files
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Check parameters and/or env vars to see if user wishes to override default config parms:
@@ -646,9 +685,10 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 numOrdsInNtwk = orderers
                 launchAppendFlags += fmt.Sprintf(" -o %d", orderers)
         } else { return passed, resultSummary + "number of orderers in network must be > 0" }
-        if prodPerCh != 1 {
-                prodPerCh = 1
-                return passed, resultSummary + "Multiple producersPerChannel is NOT SUPPORTED yet."
+
+        if pPerCh > 1 {
+                producersPerCh = pPerCh
+                return passed, resultSummary + "Multiple producersPerChannel NOT SUPPORTED yet."
         }
 
         numOrdsToWatch = numOrdsInNtwk    // Watch every orderer to verify they are all delivering the same.
@@ -656,6 +696,18 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                                           // another set of counters; the masterSpy will be created for
                                           // this test to watch every channel on an orderer - so that means
                                           // one orderer is being watched twice
+
+        // this is not an argument, but user may set this tuning parameter before running test
+        envvar = os.Getenv("OTE_CLIENTS_SHARE_CONNS")
+        if envvar != "" {
+                if (strings.ToLower(envvar) == "true" || strings.ToLower(envvar) == "t") {
+                        optimizeClientsMode = true
+                }
+                if debugflagAPI {
+                        Logger(fmt.Sprintf("%-50s %s=%t", "OTE_CLIENTS_SHARE_CONNS="+envvar, "optimizeClientsMode", optimizeClientsMode))
+                        Logger("Setting OTE_CLIENTS_SHARE_CONNS option to true does the following:\n1. All Consumers on an orderer (one GO thread per each channel) will share grpc connection.\n2. All Producers on an orderer will share a grpc conn AND share one GO-thread.\nAlthough this reduces concurrency and lengthens the test duration, it satisfies\nthe objective of reducing swap space requirements and should be selected when\nrunning tests with numerous channels or producers per channel.")
+                }
+        }
         if optimizeClientsMode {
                 // use only one MasterProducer and one MasterConsumer on each orderer
                 numProducers = numOrdsInNtwk
@@ -687,58 +739,46 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 }
         } else { numKBrokers = 0 }
 
-        // batchSize is not an argument, but this config var may be overridden by setting env var.
+        // batchSize is not an argument of ote(), but this orderer.yaml config
+        // variable may be overridden on command line or by exporting it.
         batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
-        envvar := os.Getenv("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT")
-        if envvar != "" {
-                batchsz, err := strconv.Atoi(envvar)
-                if err != nil || batchsz <= 0 {
-                        return passed, resultSummary + fmt.Sprintf("BAD value provided for batchsize. err: %v", err)
-                }
-                batchSize = int64(batchsz)
-                launchAppendFlags += fmt.Sprintf(" -b %d", batchSize)
-                Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=%d", batchSize))
-        }
+        envvar = os.Getenv("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT")
+        if envvar != "" { launchAppendFlags += fmt.Sprintf(" -b %d", batchSize) }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT="+envvar, "batchSize", batchSize)) }
 
-        // batchTimeout is not an argument, but this config var may be overridden by setting env var.
-        var batchTimeout int = int((config.Genesis.BatchTimeout).Seconds())
+        // batchTimeout
+        batchTimeout := int((config.Genesis.BatchTimeout).Seconds()) // Seconds() converts time.Duration to float64, and then retypecast to int
         envvar = os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT")
-        if envvar != "" {
-                if envvar != "10s" {
-                        //batchTimeout = ??? convert time.Duration to int
-                        Logger(fmt.Sprintf("Changing BATCHTIMEOUT is UNSUPPORTED. ORDERER_GENESIS_BATCHTIMEOUT=%d", batchTimeout))
-                }
-                launchAppendFlags += fmt.Sprintf(" -c %d", batchTimeout)
-                Logger(fmt.Sprintf("ORDERER_GENESIS_BATCHTIMEOUT=%d", batchTimeout))
-        }
+        if envvar != "" { launchAppendFlags += fmt.Sprintf(" -c %d", batchTimeout) }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "ORDERER_GENESIS_BATCHTIMEOUT="+envvar, "batchTimeout", batchTimeout)) }
 
-        // CoreLoggingLevel is not an argument, but this optional config var may be overridden by setting env var.
+        // CoreLoggingLevel
         envvar = strings.ToUpper(os.Getenv("CORE_LOGGING_LEVEL")) // (default = not set)|CRITICAL|ERROR|WARNING|NOTICE|INFO|DEBUG
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -l %s", envvar)
-                Logger(fmt.Sprintf("Peer/CORE_LOGGING_LEVEL=%s", envvar))
         }
+        if debugflagAPI { Logger(fmt.Sprintf("CORE_LOGGING_LEVEL=%s", envvar)) }
 
-        // CoreLedgerStateDB is not an argument, but this optional config var may be overridden by setting env var.
+        // CoreLedgerStateDB
         envvar = os.Getenv("CORE_LEDGER_STATE_STATEDATABASE")  // goleveldb | CouchDB
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -d %s", envvar)
-                Logger(fmt.Sprintf("Peer/CORE_LEDGER_STATE_STATEDATABASE=%s", envvar))
         }
+        if debugflagAPI { Logger(fmt.Sprintf("CORE_LEDGER_STATE_STATEDATABASE=%s", envvar)) }
 
-        // CoreSecurityLevel is not an argument, but this optional config var may be overridden by setting env var.
+        // CoreSecurityLevel
         envvar = os.Getenv("CORE_SECURITY_LEVEL")  // 256 | 384
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -w %s", envvar)
-                Logger(fmt.Sprintf("Peer/CORE_SECURITY_LEVEL=%s", envvar))
         }
+        if debugflagAPI { Logger(fmt.Sprintf("CORE_SECURITY_LEVEL=%s", envvar)) }
 
-        // CoreSecurityHashAlgorithm is not an argument, but this optional config var may be overridden by setting env var.
+        // CoreSecurityHashAlgorithm
         envvar = os.Getenv("CORE_SECURITY_HASHALGORITHM")  // SHA2 | SHA3
         if envvar != "" {
                 launchAppendFlags += fmt.Sprintf(" -x %s", envvar)
-                Logger(fmt.Sprintf("Peer/CORE_SECURITY_HASHALGORITHM=%s", envvar))
         }
+        if debugflagAPI { Logger(fmt.Sprintf("CORE_SECURITY_HASHALGORITHM=%s", envvar)) }
 
 /*
   possible others:
@@ -925,53 +965,54 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
 
 func main() {
 
+        resetGlobals()
         InitLogger("ote")
 
         // Set reasonable defaults in case any env vars are unset.
         var txs int64 = 55
-        chans    := 1
-        orderers := 1
-        ordType  := "kafka"
-        kbs      := 3
-        optimizeClients := false
+        chans    := numChannels
+        orderers := numOrdsInNtwk
+        ordType  := ordererType
+        kbs      := numKBrokers
+
+
+        // Set addMasterSpy to true to create one additional consumer client
+        // that monitors all channels on one orderer with one grpc connection.
         addMasterSpy := false
-        producersPerCh := 1
-        //listenersPerCh := 1
+
+        pPerCh := producersPerCh
+        //lPerCh := listenersPerCh
 
         // Read env vars
-        Logger("==========Environment variables provided for this test, and corresponding values actually used for the test:")
-
+        if debugflagAPI { Logger("==========Environment variables provided for this test, and corresponding values actually used for the test:") }
+        testcmd := ""
         envvar := os.Getenv("OTE_TXS")
-        if envvar != "" { txs, _ = strconv.ParseInt(envvar, 10, 64) }
-        Logger(fmt.Sprintf("%-40s %s=%d", "OTE_TXS="+envvar, "txs", txs))
+        if envvar != "" { txs, _ = strconv.ParseInt(envvar, 10, 64); testcmd += " OTE_TXS="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_TXS="+envvar, "txs", txs)) }
 
         envvar = os.Getenv("OTE_CHANNELS")
-        if envvar != "" { chans, _ = strconv.Atoi(envvar) }
-        Logger(fmt.Sprintf("%-40s %s=%d", "OTE_CHANNELS="+envvar, "chans", chans))
+        if envvar != "" { chans, _ = strconv.Atoi(envvar); testcmd += " OTE_CHANNELS="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_CHANNELS="+envvar, "chans", chans)) }
 
         envvar = os.Getenv("OTE_ORDERERS")
-        if envvar != "" { orderers, _ = strconv.Atoi(envvar) }
-        Logger(fmt.Sprintf("%-40s %s=%d", "OTE_ORDERERS="+envvar, "orderers", orderers))
+        if envvar != "" { orderers, _ = strconv.Atoi(envvar); testcmd += " OTE_ORDERERS="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_ORDERERS="+envvar, "orderers", orderers)) }
 
         envvar = os.Getenv("ORDERER_GENESIS_ORDERERTYPE")
-        if envvar != "" { ordType = envvar }
-        Logger(fmt.Sprintf("%-40s %s=%s", "ORDERER_GENESIS_ORDERERTYPE="+envvar, "ordType", ordType))
+        if envvar != "" { ordType = envvar; testcmd += " ORDERER_GENESIS_ORDERERTYPE="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%s", "ORDERER_GENESIS_ORDERERTYPE="+envvar, "ordType", ordType)) }
 
         envvar = os.Getenv("OTE_KAFKABROKERS")
-        if envvar != "" { kbs, _ = strconv.Atoi(envvar) }
-        Logger(fmt.Sprintf("%-40s %s=%d", "OTE_KAFKABROKERS="+envvar, "kbs", kbs))
-
-        envvar = os.Getenv("OTE_OPTIMIZE_CLIENTS")
-        if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { optimizeClients = true }
-        Logger(fmt.Sprintf("%-40s %s=%t", "OTE_OPTIMIZE_CLIENTS="+envvar, "optimizeClients", optimizeClients))
+        if envvar != "" { kbs, _ = strconv.Atoi(envvar); testcmd += " OTE_KAFKABROKERS="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_KAFKABROKERS="+envvar, "kbs", kbs)) }
 
         envvar = os.Getenv("OTE_MASTERSPY")
-        if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { addMasterSpy = true }
-        Logger(fmt.Sprintf("%-40s %s=%t", "OTE_MASTERSPY="+envvar, "masterSpy", addMasterSpy))
+        if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { addMasterSpy = true; testcmd += " OTE_MASTERSPY="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%t", "OTE_MASTERSPY="+envvar, "masterSpy", addMasterSpy)) }
 
         envvar = os.Getenv("OTE_PRODUCERS_PER_CHANNEL")
-        if envvar != "" { producersPerCh, _ = strconv.Atoi(envvar) }
-        Logger(fmt.Sprintf("%-40s %s=%d", "OTE_PRODUCERS_PER_CHANNEL="+envvar, "producersPerCh", producersPerCh))
+        if envvar != "" { pPerCh, _ = strconv.Atoi(envvar); testcmd += " OTE_PRODUCERS_PER_CHANNEL="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_PRODUCERS_PER_CHANNEL="+envvar, "producersPerCh", pPerCh)) }
 
-        _, _ = ote( "<commandline>", txs, chans, orderers, ordType, kbs, optimizeClients, addMasterSpy, producersPerCh)
+        _, _ = ote( "<commandline>"+testcmd+" ote", txs, chans, orderers, ordType, kbs, addMasterSpy, pPerCh)
 }
