@@ -17,21 +17,42 @@ limitations under the License.
 
 package main
 
-// Orderer Test Engine
-// ===================
-// Consists of a manager, function ote(), which can:
-// + launch a network of orderers per the specified parameters
-//   (including kafka brokers or other necessary support processes)
-//   by invoking another tool via exec command
-// + create producers to send/broadcast msgs to the orderers, concurrently
-// + create consumers to invoke deliver on the orderers to receive msgs
-// + use parameters for specifying number of channels, number of orderers
-// + generate transactions, dividing up the requested TX count among
-//   all the channels on the orderers requested, and counts them all
-// + confirm all the orderers deliver the same blocks and transactions
-// + validate the last block of transactions that was ordered and stored
-// + print status results report
-// + return a pass/fail result
+// Orderer Traffic Engine
+// ======================
+//
+// This file ote.go contains main(), for executing from command line
+// using environment variables to override those in orderer/orderer.yaml
+// or to set OTE test configuration parameters.
+//
+// Function ote() is called by main after reading environment variables,
+// and is also called via "go test" from tests in ote_test.go. Those
+// tests can be executed from automated Continuous Integration processes,
+// which can use https://github.com/jstemmer/go-junit-report to convert the
+// logs to produce junit output for CI reports.
+//   go get github.com/jstemmer/go-junit-report
+//   go test -v | go-junit-report > report.xml 
+//
+// ote() invokes tool driver.sh (including network.json and json2yml.js) -
+//   which is only slightly modified from the original version at
+//   https://github.com/dongmingh/v1FabricGenOption -
+//   to launch an orderer service network per the specified parameters
+//   (including kafka brokers or other necessary support processes).
+//   Function ote() performs several actions:
+// + create Producer clients to connect via grpc to all the channels on
+//   all the orderers to send/broadcast transaction messages 
+// + create Consumer clients to connect via grpc to ListenAddress:ListenPort
+//   on all channels on all orderers and call deliver() to receive messages
+//   containing batches of transactions
+// + use parameters for specifying test configuration such as:
+//   number of transactions, number of channels, number of orderers ...
+// + load orderer/orderer.yml to retrieve environment variables used for
+//   overriding orderer configuration such as batchsize, batchtimeout ...
+// + generate unique transactions, dividing up the requested OTE_TXS count
+//   among all the Producers
+// + Consumers confirm the same number of blocks and TXs are delivered
+//   by all the orderers on all the channels
+// + print logs for any errors, and print final tallied results
+// + return a pass/fail result and a result summary string
 
 import (
         "fmt"
@@ -43,7 +64,6 @@ import (
         "log"
         "time"
         "sync"
-
         "github.com/hyperledger/fabric/orderer/common/bootstrap/provisional"
         "github.com/hyperledger/fabric/orderer/localconfig"
         cb "github.com/hyperledger/fabric/protos/common"
@@ -54,43 +74,48 @@ import (
         "google.golang.org/grpc"
 )
 
-
 var debugflagAPI bool = true
 var debugflag1 bool = false
 var debugflag2 bool = false
 var debugflag3 bool = false // most detailed and voluminous
 
 var producers_wg sync.WaitGroup
-var ordStartPort uint16 = 5005          // starting port used by the tool called by launchNetwork()
 var logFile *os.File
 var logEnabled bool = false
 var envvar string = ""
+
 var numChannels int = 1
-var numOrdsInNtwk  int = 1              // default; the testcase may override this with the number of orderers in the network
-var numOrdsToWatch int = 1              // default set to 1; we must watch at least one orderer
-var ordererType string = "solo"         // default; the testcase may override this
-var numKBrokers int = 0                 // default; the testcase may override this (ignored unless using kafka)
-var producersPerCh int = 1              // multiple producers per channel on each orderer
-var numConsumers int = 1                // default; this will be set based on other testcase parameters
-var numProducers int = 1                // default; this will be set based on other testcase parameters
-var numTxToSend int64 = 1               // default; the testcase may override this
-                                        // numTxToSend is the total number of Transactions to send;
-                                        // A fraction will be sent by each producer - one producer for
-                                        // each channel for each numOrdsInNtwk
+var numOrdsInNtwk  int = 1
+var numOrdsToWatch int = 1
+var ordererType string = "solo"
+var numKBrokers int = 0
+var producersPerCh int = 1
+var numConsumers int = 1
+var numProducers int = 1
+
+// numTxToSend is the total number of Transactions to send; A fraction is
+// sent by each producer for each channel for each orderer.
+
+var numTxToSend int64 = 1
 
 // One GO thread is created for each producer and each consumer client.
 // To optimize go threads usage, to prevent running out of swap space
 // in the (laptop) test environment for tests using either numerous
-// channels or numerous producers per channel, set this bool true to
-// only create one go thread MasterProducer per orderer, which will
+// channels or numerous producers per channel, set bool optimizeClientsMode
+// true to only create one go thread MasterProducer per orderer, which will
 // broadcast messages to all channels on one orderer. Note this option
 // works a little less efficiently on the consumer side, where we
 // share a single grpc connection but still need to use separate
 // GO threads per channel per orderer (instead of one per orderer).
+
 var optimizeClientsMode bool = false
 
+// ordStartPort (default port is 7050, but driver.sh uses 5005).
+
+var ordStartPort uint16 = 5005
+
 func resetGlobals() {
-        // when running multiple tests, e.g. from go test, reset to defaults
+        // When running multiple tests, e.g. from go test, reset to defaults
         // for the parameters that could change per test.
         // We do NOT reset things that would apply to every test, such as
         // settings for environment variables
@@ -130,7 +155,6 @@ func Logger(printStmt string) {
         if !logEnabled {
                 return
         }
-        //TODO: Should we disable logging ?
         log.Println(printStmt)
 }
 
@@ -332,20 +356,18 @@ func cleanNetwork(consumerConns_p *([][]*grpc.ClientConn)) {
 }
 
 func launchNetwork(appendFlags string) {
-        /*
-        // using hardcoded docker compose (without using driver.sh tool)
-        if (nOrderers == 1) {
-          _ = executeCmd("docker-compose up -d")
-        } else {
-          _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
-        }
-        */
+        // Alternative way: hardcoded docker compose (not driver.sh tool)
+        //  _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
 
         cmd := fmt.Sprintf("./driver_GenOpt.sh -a create -p 1 %s", appendFlags)
         Logger(fmt.Sprintf("Launching network:  %s", cmd))
-        //executeCmdAndDisplay(cmd) // for debugging
-        executeCmd(cmd)
+        if debugflagAPI {
+                executeCmdAndDisplay(cmd) // show stdout logs; debugging help
+        } else {
+                executeCmd(cmd)
+        }
 
+        // display the network of docker containers with the orderers and such
         executeCmdAndDisplay("docker ps -a")
 }
 
@@ -353,10 +375,11 @@ func countGenesis() int64 {
         return int64(numChannels)
 }
 func sendEqualRecv(numTxToSend int64, totalTxRecv_p *[]int64, totalTxRecvMismatch bool, totalBlockRecvMismatch bool) bool {
-                                      // totalTxRecv is a reference only for speed; it will not be changed within
         var matching = false;
-        if (*totalTxRecv_p)[0] == numTxToSend {         // recv count on orderer 0 matches the send count
-                if !totalTxRecvMismatch && !totalBlockRecvMismatch {  // all orderers have same recv count
+        if (*totalTxRecv_p)[0] == numTxToSend {
+                // recv count on orderer 0 matches the send count
+                if !totalTxRecvMismatch && !totalBlockRecvMismatch {
+                        // all orderers have same recv counters
                         matching = true
                 }
         }
@@ -394,7 +417,7 @@ func startProducer(serverAddr string, chainID string, ordererIndex int, channelI
                 b.broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
                 err = b.getAck()
                 if err == nil {
-                        (*txSentCntr_p)++         // txSent[ordererIndex][channelIndex]++
+                        (*txSentCntr_p)++
                 } else {
                         (*txSentFailureCntr_p)++
                         if !first_err {
@@ -447,13 +470,14 @@ func startProducerMaster(serverAddr string, chainIDs *[]string, ordererIndex int
 
         first_err := false
         for i := int64(0); i < txMax; i++ {
-                // send one TX to every broadcast client (i.e. one TX on each channel)
+                // send one TX to every broadcast client (one TX on each chnl)
                 for c := 0; c < numChannels; c++ {
-                        if i < (*txReq_p)[c] { // if more TXs to send on this channel
+                        if i < (*txReq_p)[c] {
+                                // more TXs to send on this channel
                                 bc[c].broadcast([]byte(fmt.Sprintf("Testing %v", time.Now())))
                                 err = bc[c].getAck()
                                 if err == nil {
-                                        (*txSentCntr_p)[c]++         // txSent[ordererIndex][channelIndex]++
+                                        (*txSentCntr_p)[c]++
                                 } else {
                                         (*txSentFailureCntr_p)[c]++
                                         if !first_err {
@@ -482,10 +506,9 @@ func startProducerMaster(serverAddr string, chainIDs *[]string, ordererIndex int
 }
 
 func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][]int64, totalNumTxSentFailures *int64, txRecv *[][]int64, totalTxRecv *[]int64, totalTxRecvMismatch *bool, blockRecv *[][]int64, totalBlockRecv *[]int64, totalBlockRecvMismatch *bool) {
-        // Note: txSent and txSentFailures are defined as references for speed, but they are not changed within.
-
-        // Counters for producers are indexed by orderer (numOrdsInNtwk) and channel (numChannels)
-        // All counters for all the channels on ALL orderers is the total count.
+        // The counters for Producers are indexed by orderer (numOrdsInNtwk)
+        // and channel (numChannels).
+        // Total count includes all counters for all channels on ALL orderers.
         // e.g.    totalNumTxSent         = sum of txSent[*][*]
         // e.g.    totalNumTxSentFailures = sum of txSentFailures[*][*]
 
@@ -498,17 +521,21 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
                 }
         }
 
-        // Counters for consumers are indexed by orderer (numOrdsToWatch) and channel (numChannels).
-        // All counters for all the channels on JUST ONE orderer is the total count.
-        // Tally up the totals for all the channels on each orderer, and store them for comparison; they should all be the same.
+        // Counters for consumers are indexed by orderer (numOrdsToWatch)
+        // and channel (numChannels).
+        // The total count includes all counters for all channels on
+        // ONLY ONE orderer.
+        // Tally up the totals for all the channels on each orderer, and
+        // store them for comparison; they should all be the same.
         // e.g.    totalTxRecv[k]    = sum of txRecv[k][*]
         // e.g.    totalBlockRecv[k] = sum of blockRecv[k][*]
 
         *totalTxRecvMismatch = false
         *totalBlockRecvMismatch = false
         for k := 0; k < numOrdsToWatch; k++ {
-                (*totalTxRecv)[k] = -countGenesis()    // we are only counting the requested TXs; ignore the genesis block TXs
-                (*totalBlockRecv)[k] = -countGenesis() // we are only counting the requested TXs; ignore the genesis blocks
+                // count only the requested TXs - not the genesis block TXs
+                (*totalTxRecv)[k] = -countGenesis()
+                (*totalBlockRecv)[k] = -countGenesis()
                 for l := 0; l < numChannels; l++ {
                         (*totalTxRecv)[k] += (*txRecv)[k][l]
                         (*totalBlockRecv)[k] += (*blockRecv)[k][l]
@@ -518,22 +545,19 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
                 if (k>0) && (*totalBlockRecv)[k] != (*totalBlockRecv)[k-1] { *totalBlockRecvMismatch = true }
         }
         if debugflag2 { Logger(fmt.Sprintf("in compute(): totalTxRecv[]= %v, totalBlockRecv[]= %v", *totalTxRecv, *totalBlockRecv)) }
-
-        // Note: we must remove the orderers (docker containers) to clean up the network; otherwise
-        // the totalTxRecv and totalBlockRecv counts would include counts from earlier tests, since
-        // ALL the ordered blocks that have accumulated in the orderer will be delivered and reported
-        // (and not just the ones from this test with this set of producers/consumers).
-        // Also note, in that case, there would be ONLY ONE genesis block for the orderer, for
-        // all the tests combined - not one for each test.
 }
 
 func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool, channelIDs *[]string) (successResult bool, resultStr string) {
 
+        // default to failed
         var passFailStr string = "FAILED"
         successResult = false
         resultStr = "TEST " + testname + " "
 
-        // for each producer print the ordererIndex & channel, the TX requested to be sent, the actual num sent and num failed-to-send
+        // For each Producer, print the ordererIndex and channelIndex, the
+        // number of TX requested to be sent, the actual number of TX sent,
+        // and the number we failed to send.
+
         if numOrdsInNtwk > 3 || numChannels > 3 {
                 Logger(fmt.Sprintf("Print only the first 3 chans of only the first 3 ordererIdx; and any others ONLY IF they contain failures.\nTotals numOrdInNtwk=%d numChan=%d numPRODUCERs=%d", numOrdsInNtwk, numChannels, numOrdsInNtwk*numChannels))
         }
@@ -569,25 +593,23 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
                 }
         }
 
-        // Check for differences on the deliveries from the orderers. These are probably errors -
-        // unless the test stopped an orderer on purpose and never restarted it, while the
-        // others continued to deliver transactions. (If an orderer is restarted, then it
-        // would reprocess all the back-ordered transactions to catch up with the others.)
+        // Check for differences on the deliveries from the orderers. These are
+        // probably errors - unless the test stopped an orderer on purpose and
+        // never restarted it, while the others continued to deliver TXs.
+        // (If an orderer is restarted, then it would reprocess all the
+        // back-ordered transactions to catch up with the others.)
 
         if totalTxRecvMismatch { Logger("!!!!! Num TXs Delivered is not same on all orderers!!!!!") }
         if totalBlockRecvMismatch { Logger("!!!!! Num Blocks Delivered is not same on all orderers!!!!!") }
 
-        // if totalTxRecv on one orderer == numTxToSendTotal plus a genesisblock for each channel {
-        if totalTxRecv[0] == numTxToSendTotal {            // recv count on orderer 0 matches the send count
+        if totalTxRecv[0] == numTxToSendTotal {
+                // recv count on orderer 0 matches the send count
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
-                        // every Tx was successfully sent AND delivered by orderer, and all orderers delivered the same number
                         Logger("Hooray! Every TX was successfully sent AND delivered by orderer service.")
                         successResult = true
                         passFailStr = "PASSED"
                 } else {
-                        resultStr += "Orderers were INCONSISTENT:"
-                        // Every TX was successfully sent AND delivered by at least one orderer -
-                        // HOWEVER all orderers that were being watched did not deliver the same counts
+                        resultStr += "Orderers were INCONSISTENT: Every TX was successfully sent AND delivered by orderer0 but not all orderers"
                 }
         } else if totalTxRecv[0] == totalNumTxSent + totalNumTxSentFailures {
                 if !totalTxRecvMismatch && !totalBlockRecvMismatch {
@@ -603,9 +625,12 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
         //
         // Before we declare success, let's check some more things...
         //
+        // At this point, we have decided if most of the numbers make sense by
+        // setting succssResult to true if the tests passed. Thus we assume
+        // successReult=true and just set it to false if we find a problem.
 
         // Check the totals to verify if the number of blocks on each channel
-        // is appropriate for the given batchSize and number of transactions sent
+        // is appropriate for the given batchSize and number of TXs sent.
 
         expectedBlocksOnChan := make([]int64, numChannels) // create a counter for all the channels on one orderer
         for c := 0; c < numChannels; c++ {
@@ -626,10 +651,13 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
                 }
         }
 
- //     TODO - Verify the contents of the last block of transactions. Since we do not know
- //            exactly what should be in the block, then at least we can do:
- //            for each channel, verify if the block delivered from each orderer is the same
- //            (i.e. contains the same Data bytes (transactions) in the last block)
+
+        // TODO - Verify the contents of the last block of transactions.
+        //        Since we do not know exactly what should be in the block,
+        //        then at least we can do:
+        //            for each channel, verify if the block delivered from
+        //            each orderer is the same (i.e. contains the same
+        //            Data bytes (transactions) in the last block)
 
 
         // print some counters totals
@@ -642,8 +670,8 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
                 Logger(fmt.Sprintf("Total deliveries received TX          %9d", totalTxRecv[0]))
                 Logger(fmt.Sprintf("Total deliveries received Blocks      %9d", totalBlockRecv[0]))
         } else {
-                Logger(fmt.Sprintf("Total deliveries received TX on each ordr      %7d", totalTxRecv))
-                Logger(fmt.Sprintf("Total deliveries received Blocks on each ordr  %7d", totalBlockRecv))
+                Logger(fmt.Sprintf("Total deliveries received TX on each ordrr     %7d", totalTxRecv))
+                Logger(fmt.Sprintf("Total deliveries received Blocks on each ordrr %7d", totalBlockRecv))
         }
 
         // print output result and counts : overall summary
@@ -671,13 +699,14 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         config := config.Load()  // establish the default configuration from yaml files,
         var launchAppendFlags string
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Check parameters and/or env vars to see if user wishes to override default config parms:
-        ////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+        // Check parameters and/or env vars to see if user wishes to override
+        // default config parms.
+        ////////////////////////////////////////////////////////////////////////
 
-        //////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////
         // Arguments for OTE settings for test variations:
-        //////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////
 
         if txs > 0        { numTxToSend = txs   }      else { return passed, resultSummary + "number of transactions must be > 0" }
         if chans > 0      { numChannels = chans }      else { return passed, resultSummary + "number of channels must be > 0" }
@@ -718,9 +747,9 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 numConsumers = numOrdsInNtwk * numChannels
         }
 
-        //////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////
         // Arguments to override configuration parameter values in yaml file:
-        //////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////
 
         // ordererType
         ordererType = config.Genesis.OrdererType
@@ -781,41 +810,39 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         }
         if debugflagAPI { Logger(fmt.Sprintf("CORE_SECURITY_HASHALGORITHM=%s", envvar)) }
 
-/*
-  possible others:
-    core peer gossip orgLeader           true | false
- */
 
+        //////////////////////////////////////////////////////////////////////////
+        // Each producer sends TXs to one channel on one orderer, and increments
+        // its own counters for the successfully sent Tx, and the send-failures
+        // (rejected/timeout). These arrays are indexed by dimensions:
+        // numOrdsInNtwk and numChannels
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Each producer sends TXs to one channel on one orderer, and increments its own counters for
-        // the successfully sent Tx, and the send-failures (rejected/timeout).
-        // These 2D arrays are indexed by dimensions: numOrdsInNtwk and numChannels
-
-        var countToSend        [][]int64       // counter of TX to be sent to each orderer on each channel
-        var txSent             [][]int64       // TX sendSuccesses on ord[]channel[]
-        var txSentFailures     [][]int64       // TX sendFailures  on ord[]channel[]
+        var countToSend        [][]int64
+        var txSent             [][]int64
+        var txSentFailures     [][]int64
         var totalNumTxSent         int64 = 0
         var totalNumTxSentFailures int64 = 0
 
-        // Each consumer receives blocks delivered on one channel from one orderer,
-        // and must track its own counters for the received number of blocks and
-        // received number of Tx.
-        // We will create consumers for every channel on an orderer, and total up the TXs received.
-        // And do that for all the orderers (indexed by numOrdsToWatch).
-        // We will check to ensure all the orderers receive all the same deliveries.
-        // These 2D arrays are indexed by dimensions: numOrdsToWatch and numChannels
+        // Each consumer receives blocks delivered on one channel from one
+        // orderer, and must track its own counters for the received number of
+        // blocks and received number of Tx.
+        // We will create consumers for every channel on an orderer, and total
+        // up the TXs received. And do that for all the orderers (indexed by
+        // numOrdsToWatch). We will check to ensure all the orderers receive
+        // all the same deliveries. These arrays are indexed by dimensions:
+        // numOrdsToWatch and numChannels
 
         var txRecv       [][]int64
         var blockRecv    [][]int64
-        var totalTxRecv    []int64          // total TXs received by all consumers on an orderer, indexed by numOrdsToWatch
-        var totalBlockRecv []int64          // total Blocks recvd by all consumers on an orderer, indexed by numOrdsToWatch
+        var totalTxRecv    []int64 // total TXs rcvd by all consumers on an orderer, indexed by numOrdsToWatch
+        var totalBlockRecv []int64 // total Blks recvd by all consumers on an orderer, indexed by numOrdsToWatch
         var totalTxRecvMismatch bool = false
         var totalBlockRecvMismatch bool = false
         var consumerConns [][]*grpc.ClientConn
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Create the 1D and 2D slices of counters for the producers and consumers. All are initialized to zero.
+        ////////////////////////////////////////////////////////////////////////
+        // Create the 1D and 2D slices of counters for the producers and
+        // consumers. All are initialized to zero.
 
         for i := 0; i < numOrdsInNtwk; i++ {                    // for all orderers
 
@@ -845,26 +872,27 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         totalBlockRecv = make([]int64, numOrdsToWatch)  // create counter for each orderer, for total blk received (for all channels)
 
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // invoke dongming's script to start a network configuration corresponding to the parameters passed to us by the user
+        ////////////////////////////////////////////////////////////////////////
 
         launchNetwork(launchAppendFlags)
         time.Sleep(10 * time.Second)
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // Create the 1D slice of channel IDs, and create names for them which we will use
-        // when producing/broadcasting/sending msgs and consuming/delivering/receiving msgs.
+        ////////////////////////////////////////////////////////////////////////
+        // Create the 1D slice of channel IDs, and create names for them
+        // which we will use when producing/broadcasting/sending msgs and
+        // consuming/delivering/receiving msgs.
 
         var channelIDs []string
-        channelIDs = make([]string, numChannels)     // create a slice of channelIDs
+        channelIDs = make([]string, numChannels)
+
         // TODO (after FAB-2001 and FAB-2083 are fixed) - Remove the if-then clause.
         // Due to those bugs, we cannot pass many tests using multiple orderers and multiple channels.
         // TEMPORARY PARTIAL SOLUTION: To test multiple orderers with a single channel,
         // use hardcoded TestChainID and skip creating any channels.
-      if numChannels == 1 {
-              channelIDs[0] = provisional.TestChainID
-              Logger(fmt.Sprintf("Using DEFAULT channelID = %s", channelIDs[0]))
-      } else {
+    if numChannels == 1 {
+      channelIDs[0] = provisional.TestChainID
+      Logger(fmt.Sprintf("Using DEFAULT channelID = %s", channelIDs[0]))
+    } else {
         Logger(fmt.Sprintf("Using %d new channelIDs, e.g. test-chan.00023", numChannels))
         for c:=0; c < numChannels; c++ {
                 channelIDs[c] = fmt.Sprintf("test-chan.%05d", c)
@@ -872,27 +900,34 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 _ = executeCmd(cmd)
                 //executeCmdAndDisplay(cmd)
         }
-      }
+    }
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // start threads for a consumer to watch each channel on all (the specified number of) orderers.
-        // This code assumes orderers in the network will use increasing port numbers:
-        // the first ordererer uses default port (7050), the second uses default+1(7051), etc.
+        ////////////////////////////////////////////////////////////////////////
+        // Start threads for each consumer to watch each channel on all (the
+        // specified number of) orderers. This code assumes orderers in the
+        // network will use increasing port numbers, which is the same logic
+        // used by the driver.sh tool that starts the network for us: the first
+        // orderer uses ordStartPort, the second uses ordStartPort+1, etc.
 
         for ord := 0; ord < numOrdsToWatch; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort + uint16(ord))
                 if masterSpy && ord == numOrdsToWatch-1 {
-                        // Special case: this is the last row of counters, added (and incremented numOrdsToWatch) for the masterSpy
-                        // to use to watch the first orderer for deliveries, on all channels. This will be a duplicate Consumer
-                        // (it is the second one monitoring the first orderer), so we need to reuse the first port.
+                        // Special case: this is the last row of counters,
+                        // added (and incremented numOrdsToWatch) for the
+                        // masterSpy to use to watch the first orderer for
+                        // deliveries, on all channels. This will be a duplicate
+                        // Consumer (it is the second one monitoring the first
+                        // orderer), so we need to reuse the first port.
                         serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort)
                         go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
                 } else
                 if optimizeClientsMode {
-                        // create just one Consumer to receive all deliveries (on all channels) on an orderer
+                        // Create just one Consumer to receive all deliveries
+                        // (on all channels) on an orderer.
                         go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
                 } else {
-                        // normal mode: create a unique consumer client go thread for each channel on each orderer
+                        // Normal mode: create a unique consumer client
+                        // go-thread for each channel on each orderer.
                         for c := 0 ; c < numChannels ; c++ {
                                 go startConsumer(serverAddr, channelIDs[c], ord, c, &(txRecv[ord][c]), &(blockRecv[ord][c]), &(consumerConns[ord][c]))
                         }
@@ -904,9 +939,10 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         time.Sleep(5 * time.Second)
         defer cleanNetwork(&consumerConns)
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
-        // now that the orderer service network is running, and the consumers are watching for deliveries,
-        // we can start clients which will broadcast the specified number of msgs to their associated orderers
+        ////////////////////////////////////////////////////////////////////////
+        // Now that the orderer service network is running, and the consumers
+        // are watching for deliveries, we can start clients which will
+        // broadcast the specified number of TXs to their associated orderers.
 
         if optimizeClientsMode {
                 producers_wg.Add(numOrdsInNtwk)
@@ -914,7 +950,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 producers_wg.Add(numProducers)
         }
         sendStart := time.Now().Unix()
-        for ord := 0; ord < numOrdsInNtwk; ord++ {    // on each orderer:
+        for ord := 0; ord < numOrdsInNtwk; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         countToSend[ord][c] = numTxToSend / int64(numOrdsInNtwk * numChannels)
@@ -924,7 +960,8 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                         // create one Producer for all channels on this orderer
                         go startProducerMaster(serverAddr, &channelIDs, ord, &(countToSend[ord]), &(txSent[ord]), &(txSentFailures[ord]))
                 } else {
-                        // normal mode: create a unique consumer client go thread for each channel
+                        // Normal mode: create a unique consumer client
+                        // go thread for each channel
                         for c := 0 ; c < numChannels ; c++ {
                                 go startProducer(serverAddr, channelIDs[c], ord, c, countToSend[ord][c], &(txSent[ord][c]), &(txSentFailures[ord][c]))
                         }
@@ -940,16 +977,18 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         Logger(fmt.Sprintf("Send Duration (seconds): %4d", time.Now().Unix() - sendStart))
         recoverStart := time.Now().Unix()
 
-        ////////////////////////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
         // All producer threads are finished sending broadcast transactions.
-        // Let's determine if the deliveries have all been received by the consumer threads.
-        // We will check if the receive counts match the send counts on all consumers, or
-        // if all consumers are no longer receiving blocks.
-        // Wait and continue rechecking as necessary, as long as the delivery (recv) counters
-        // are climbing closer to the broadcast (send) counter.
+        // Let's determine if the deliveries have all been received by the
+        // consumer threads. We will check if the receive counts match the send
+        // counts on all consumers, or if all consumers are no longer receiving
+        // blocks. Wait and continue rechecking as necessary, as long as the
+        // delivery (recv) counters are climbing closer to the broadcast (send)
+        // counter. If the counts do not match, wait for up to batchTimeout
+        // seconds, to ensure that we received the last (non-full) batch.
 
         computeTotals(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch)
-        // note: wait for batchTimeout to receive last batch (default is 10)
+
         waitSecs := 0
         for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs < batchTimeout) { time.Sleep(1 * time.Second); waitSecs++ }
 
@@ -981,7 +1020,7 @@ func main() {
         addMasterSpy := false
 
         pPerCh := producersPerCh
-        //lPerCh := listenersPerCh
+        // TODO lPerCh := listenersPerCh
 
         // Read env vars
         if debugflagAPI { Logger("==========Environment variables provided for this test, and corresponding values actually used for the test:") }
