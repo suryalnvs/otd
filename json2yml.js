@@ -282,6 +282,9 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                                 buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'solo' + '\n';
                                                 fs.appendFileSync(dFile, buff);
                                             }
+                                    } else if ( lvl3_key[m] == 'ORDERER_GENERAL_LISTENPORT' ) {
+                                            buff = '  ' + '    - ' + lvl3_key[m] + '=' + ordererPort + '\n';
+                                            fs.appendFileSync(dFile, buff);
                                     } else if ( ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISMETHOD' ) || ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISFILE' ) ) {
                                         if ( addBroker > 0 ) {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + lvl2_obj[lvl3_key[m]] + '\n';
@@ -365,6 +368,9 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                 for ( m=0; m< lvl3_key.length; m++ ) {
                                     if ( lvl3_key[m] == 'KAFKA_BROKER_ID' ) {
                                         buff = '  ' + '    - ' + lvl3_key[m] + '=' + v + '\n';
+                                        fs.appendFileSync(dFile, buff);
+                                    } else if ( lvl3_key[m] == 'KAFKA_DEFAULT_REPLICATION_FACTOR' ) {
+                                        buff = '  ' + '    - ' + lvl3_key[m] + '=' + addBroker + '\n';
                                         fs.appendFileSync(dFile, buff);
                                     } else {
                                         buff = '  ' + '    - ' + lvl3_key[m] + '=' +lvl2_obj[lvl3_key[m]] + '\n';
