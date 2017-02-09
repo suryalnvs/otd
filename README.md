@@ -84,12 +84,26 @@ Then use "go test" to execute Test functions
 to execute either one test, or all go tests, or
 a subset of existing functional go tests using a regular expression
 to choose tests in local test files.
-Optionally translate the output to xml for reporting.
 ```bash
   cd hyperledger/fabric/bddtests/regression/ote
   go test -run ORD77
   go test -timeout 2h
   go test -run batch -timeout 20m
+```
+
+### Execute OTE GO Tests for Continuous Improvement
+Optionally, one can translate the "go test" output to xml for reports.
+This is useful for automated test suites that are automatically
+executed from Jenkins by Continuous Improvement processes.
+
+#### Pre-requisite to convert "go test" output to xml
+```bash
+  cd hyperledger/fabric/bddtests/regression/ote
+  go get github.com/jstemmer/go-junit-report
+```
+#### Example command to execute a all "go tests" and convert to xml:
+```
+  cd hyperledger/fabric/bddtests/regression/ote
   go test -v | go-junit-report > report.xml
 ```
 
