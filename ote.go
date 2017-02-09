@@ -619,9 +619,9 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
                         if expectedBlocksOnChan[c] != blockRecv[ord][c] - 1 { // ignore genesis block
                                 successResult = false
                                 passFailStr = "FAILED"
-                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d channelIDs[%d]=%s, txSent=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan[c], ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
+                                Logger(fmt.Sprintf("Error: Unexpected Block count %d (expected %d) on ordIndx=%d channelIDs[%d]=%s, chanSentTxTotal=%d BatchSize=%d", blockRecv[ord][c]-1, expectedBlocksOnChan[c], ord, c, (*channelIDs)[c], chanSentTotal, batchSize))
                         } else {
-                                if debugflag1 { Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d channelIDs[%d]=%s txSent=%d BatchSize=%d", expectedBlocksOnChan[c], ord, c, (*channelIDs)[c], chanSentTotal, batchSize)) }
+                                if debugflag1 { Logger(fmt.Sprintf("GOOD block count %d on ordIndx=%d channelIDs[%d]=%s chanSentTxTotal=%d BatchSize=%d", expectedBlocksOnChan[c], ord, c, (*channelIDs)[c], chanSentTotal, batchSize)) }
                         }
                 }
         }
@@ -747,6 +747,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT="+envvar, "batchSize", batchSize)) }
 
         // batchTimeout
+        //Logger(fmt.Sprintf("DEBUG=====BatchTimeout config:%v config.Seconds-float():%v config.Seconds-int:%v", config.Genesis.BatchTimeout, (config.Genesis.BatchTimeout).Seconds(), int((config.Genesis.BatchTimeout).Seconds())))
         batchTimeout := int((config.Genesis.BatchTimeout).Seconds()) // Seconds() converts time.Duration to float64, and then retypecast to int
         envvar = os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT")
         if envvar != "" { launchAppendFlags += fmt.Sprintf(" -c %d", batchTimeout) }
@@ -856,12 +857,11 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
 
         var channelIDs []string
         channelIDs = make([]string, numChannels)     // create a slice of channelIDs
-        // TODO (after FAB-2001 is fixed) - Remove the if-then clause.
-        // Due to FAB-2001 bug, we cannot test with multiple orderers and multiple channels.
-        // Currently it will work only with single orderer and multiple channels.
+        // TODO (after FAB-2001 and FAB-2083 are fixed) - Remove the if-then clause.
+        // Due to those bugs, we cannot pass many tests using multiple orderers and multiple channels.
         // TEMPORARY PARTIAL SOLUTION: To test multiple orderers with a single channel,
         // use hardcoded TestChainID and skip creating any channels.
-      if numChannels == 1 && numOrdsInNtwk >= 1 {
+      if numChannels == 1 {
               channelIDs[0] = provisional.TestChainID
               Logger(fmt.Sprintf("Using DEFAULT channelID = %s", channelIDs[0]))
       } else {
@@ -949,9 +949,9 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         // are climbing closer to the broadcast (send) counter.
 
         computeTotals(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch)
-        //batchTimeout = 10
+        // note: wait for batchTimeout to receive last batch (default is 10)
         waitSecs := 0
-        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs <= batchTimeout) { time.Sleep(1 * time.Second); waitSecs++ }
+        for !sendEqualRecv(numTxToSend, &totalTxRecv, totalTxRecvMismatch, totalBlockRecvMismatch) && (moreDeliveries(&txSent, &totalNumTxSent, &txSentFailures, &totalNumTxSentFailures, &txRecv, &totalTxRecv, &totalTxRecvMismatch, &blockRecv, &totalBlockRecv, &totalBlockRecvMismatch) || waitSecs < batchTimeout) { time.Sleep(1 * time.Second); waitSecs++ }
 
         // Recovery Duration = time spent waiting for orderer service to finish delivering transactions,
         // after all producers finished sending them.
