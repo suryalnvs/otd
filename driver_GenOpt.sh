@@ -4,6 +4,7 @@ InvalidArgs=0
 
 #init var
 nBroker=0
+nPeer=1
 
 while getopts ":l:d:w:x:b:c:t:a:o:k:p:" opt; do
   case $opt in
@@ -43,7 +44,7 @@ while getopts ":l:d:w:x:b:c:t:a:o:k:p:" opt; do
       ORDERER_GENESIS_ORDERERTYPE=$OPTARG
       export ORDERER_GENESIS_ORDERERTYPE=$ORDERER_GENESIS_ORDERERTYPE
       echo "ORDERER_GENESIS_ORDERERTYPE: $ORDERER_GENESIS_ORDERERTYPE"
-      if [ $ORDERER_GENESIS_ORDERERTYPE == 'kafka' ]; then
+      if [$nBroker == 0 ] && [ $ORDERER_GENESIS_ORDERERTYPE == 'kafka' ]; then
           nBroker=1   # must have at least 1
       fi
       ;;
@@ -111,6 +112,15 @@ fi
 ##OSName=`uname`
 ##echo "Operating System: $OSName"
 
+for i in orderer
+do
+j=peer
+TMP=$(curl -s -S 'https://registry.hub.docker.com/v2/repositories/rameshthoomu/fabric-'"$i"'-x86_64/tags/' | awk '{for(i=1;i<=NF;i++)if($i~/"name":/)print $(i+1)}' | grep "x86_64" | awk 'NR==1{print $1}' | tr -d "\"|,")
+sed 's/\(.*fabric-'"$i"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/;s/\(.*fabric-'"$j"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/' network.json > network.json.tmp
+cp network.json.tmp network.json
+rm network.json.tmp
+done
+
 
 dbType=`echo "$db" | awk '{print tolower($0)}'`
 echo "action=$Req nPeer=$nPeer nBroker=$nBroker nOrderer=$nOrderer dbType=$dbType"
@@ -154,7 +164,7 @@ node json2yml.js $jsonFILE $N1 $nOrderer $nBroker $dbType
 # create network
 if [ $Req == "create" ]; then
 
-   docker-compose -f docker-compose.yml up -d --force-recreate cli $VPN
+   docker-compose -f docker-compose.yml up -d --force-recreate $VPN
    ##docker-compose -f docker-compose.yml up -d --force-recreate $VPN
    for ((i=1; i<$nOrderer; i++))
    do

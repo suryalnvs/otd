@@ -37,7 +37,7 @@
             "container_name": "ca0"
         },
         "orderer": {
-            "image": "rameshthoomu/fabric-orderer-x86_64",
+            "image": "rameshthoomu/fabric-orderer-x86_64:x86_64-0.7.0-snapshot-95911f2",
             "restart": "unless-stopped",
             "environment": {
                 "ORDERER_GENERAL_LEDGERTYPE": "ram",
@@ -78,7 +78,7 @@
             "container_name": "couchdb"
         },
         "peer": {
-            "image": "rameshthoomu/fabric-peer-x86_64",
+            "image": "rameshthoomu/fabric-peer-x86_64:x86_64-0.7.0-snapshot-95911f2",
             "restart": "unless-stopped",
             "environment": {
                  "CORE_PEER_ID": "peer",
@@ -122,7 +122,7 @@
         },
         "cli": {
             "container_name": "cli",
-            "image": "rameshthoomu/fabric-peer-x86_64",
+            "image": "rameshthoomu/fabric-peer-x86_64:x86_64-0.7.0-snapshot-95911f2",
             "tty": "true",
             "environment": {
                   "GOPATH":"/opt/gopath",
