@@ -10,11 +10,11 @@
             "bridge",
     "services": {
         "zookeeper": {
-            "image": "zookeeper:3.4.9",
+            "image": "hyperledger/fabric-zookeeper",
             "container_name": "zookeeper"
         },
         "kafka": {
-            "image": "kchristidis/kafka",
+            "image": "hyperledger/fabric-kafka",
             "environment": {
                  "KAFKA_BROKER_ID": "0",
                  "KAFKA_ZOOKEEPER_CONNECT": "zookeeper:2181",
@@ -37,7 +37,7 @@
             "container_name": "ca0"
         },
         "orderer": {
-            "image": "rameshthoomu/fabric-orderer-x86_64:x86_64-0.7.0-snapshot-95911f2",
+            "image": "hyperledger/fabric-orderer",
             "restart": "unless-stopped",
             "environment": {
                 "ORDERER_GENERAL_LEDGERTYPE": "ram",
@@ -78,7 +78,7 @@
             "container_name": "couchdb"
         },
         "peer": {
-            "image": "rameshthoomu/fabric-peer-x86_64:x86_64-0.7.0-snapshot-95911f2",
+            "image": "hyperledger/fabric-peer",
             "restart": "unless-stopped",
             "environment": {
                  "CORE_PEER_ID": "peer",
@@ -122,7 +122,7 @@
         },
         "cli": {
             "container_name": "cli",
-            "image": "rameshthoomu/fabric-peer-x86_64:x86_64-0.7.0-snapshot-95911f2",
+            "image": "hyperledger/fabric-peer",
             "tty": "true",
             "environment": {
                   "GOPATH":"/opt/gopath",

@@ -82,7 +82,7 @@ done
 
 if [ $InvalidArgs == 1 ]; then
    echo "Usage: "
-   echo " ./driver_ord.sh [opt] [value] "
+   echo " ./driver.sh [opt] [value] "
    echo "    network variables"
    echo "    -a: action [create|add] "
    echo "    -p: number of peers "
@@ -112,15 +112,6 @@ fi
 ##OSName=`uname`
 ##echo "Operating System: $OSName"
 
-for i in orderer
-do
-j=peer
-TMP=$(curl -s -S 'https://registry.hub.docker.com/v2/repositories/rameshthoomu/fabric-'"$i"'-x86_64/tags/' | awk '{for(i=1;i<=NF;i++)if($i~/"name":/)print $(i+1)}' | grep "x86_64" | awk 'NR==1{print $1}' | tr -d "\"|,")
-sed 's/\(.*fabric-'"$i"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/;s/\(.*fabric-'"$j"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/' network.json > network.json.tmp
-cp network.json.tmp network.json
-rm network.json.tmp
-done
-
 
 dbType=`echo "$db" | awk '{print tolower($0)}'`
 echo "action=$Req nPeer=$nPeer nBroker=$nBroker nOrderer=$nOrderer dbType=$dbType"
@@ -131,8 +122,9 @@ echo "existing peers: $VP"
 echo "remove old docker-composer.yml"
 rm -f docker-compose.yml
 
-echo "docker pull https://hub.docker.com/r/rameshthoomu/fabric-ccenv-x86_64"
-docker pull rameshthoomu/fabric-ccenv-x86_64
+#REMOVED FROM ORIG SCRIPT:
+#echo "docker pull https://hub.docker.com/r/rameshthoomu/fabric-ccenv-x86_64"
+#docker pull rameshthoomu/fabric-ccenv-x86_64
 
 # form json input file
 if [ $nBroker == 0 ]; then
@@ -164,8 +156,9 @@ node json2yml.js $jsonFILE $N1 $nOrderer $nBroker $dbType
 # create network
 if [ $Req == "create" ]; then
 
+   #CHANGED FROM ORIG SCRIPT
+   #docker-compose -f docker-compose.yml up -d --force-recreate $VPN cli
    docker-compose -f docker-compose.yml up -d --force-recreate $VPN
-   ##docker-compose -f docker-compose.yml up -d --force-recreate $VPN
    for ((i=1; i<$nOrderer; i++))
    do
        tmpOrd="orderer"$i

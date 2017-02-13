@@ -30,7 +30,7 @@ package main
 // which can use https://github.com/jstemmer/go-junit-report to convert the
 // logs to produce junit output for CI reports.
 //   go get github.com/jstemmer/go-junit-report
-//   go test -v | go-junit-report > report.xml 
+//   go test -v | go-junit-report > report.xml
 //
 // ote() invokes tool driver.sh (including network.json and json2yml.js) -
 //   which is only slightly modified from the original version at
@@ -39,7 +39,7 @@ package main
 //   (including kafka brokers or other necessary support processes).
 //   Function ote() performs several actions:
 // + create Producer clients to connect via grpc to all the channels on
-//   all the orderers to send/broadcast transaction messages 
+//   all the orderers to send/broadcast transaction messages
 // + create Consumer clients to connect via grpc to ListenAddress:ListenPort
 //   on all channels on all orderers and call deliver() to receive messages
 //   containing batches of transactions
@@ -73,6 +73,12 @@ import (
         "github.com/golang/protobuf/proto"
         "google.golang.org/grpc"
 )
+
+var GenesisConfigLocation string = "ORDERER_GENESIS_"
+var OrdererConfigLocation string = "ORDERER_GENERAL_"
+var BatchSizeParamStr string = GenesisConfigLocation+"BATCHSIZE_MAXMESSAGECOUNT"
+var BatchTimeoutParamStr string = GenesisConfigLocation+"BATCHTIMEOUT"
+var OrdererTypeParamStr string = GenesisConfigLocation+"ORDERERTYPE"
 
 var debugflagAPI bool = true
 var debugflag1 bool = false
@@ -359,7 +365,7 @@ func launchNetwork(appendFlags string) {
         // Alternative way: hardcoded docker compose (not driver.sh tool)
         //  _ = executeCmd("docker-compose -f docker-compose-3orderers.yml up -d")
 
-        cmd := fmt.Sprintf("./driver_GenOpt.sh -a create -p 1 %s", appendFlags)
+        cmd := fmt.Sprintf("./driver.sh -a create -p 1 %s", appendFlags)
         Logger(fmt.Sprintf("Launching network:  %s", cmd))
         if debugflagAPI {
                 executeCmdAndDisplay(cmd) // show stdout logs; debugging help
@@ -771,16 +777,16 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         // batchSize is not an argument of ote(), but this orderer.yaml config
         // variable may be overridden on command line or by exporting it.
         batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
-        envvar = os.Getenv("ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT")
+        envvar = os.Getenv(BatchSizeParamStr)
         if envvar != "" { launchAppendFlags += fmt.Sprintf(" -b %d", batchSize) }
-        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT="+envvar, "batchSize", batchSize)) }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", BatchSizeParamStr+"="+envvar, "batchSize", batchSize)) }
 
         // batchTimeout
         //Logger(fmt.Sprintf("DEBUG=====BatchTimeout config:%v config.Seconds-float():%v config.Seconds-int:%v", config.Genesis.BatchTimeout, (config.Genesis.BatchTimeout).Seconds(), int((config.Genesis.BatchTimeout).Seconds())))
         batchTimeout := int((config.Genesis.BatchTimeout).Seconds()) // Seconds() converts time.Duration to float64, and then retypecast to int
-        envvar = os.Getenv("ORDERER_GENESIS_BATCHTIMEOUT")
+        envvar = os.Getenv(BatchTimeoutParamStr)
         if envvar != "" { launchAppendFlags += fmt.Sprintf(" -c %d", batchTimeout) }
-        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "ORDERER_GENESIS_BATCHTIMEOUT="+envvar, "batchTimeout", batchTimeout)) }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", BatchTimeoutParamStr+"="+envvar, "batchTimeout", batchTimeout)) }
 
         // CoreLoggingLevel
         envvar = strings.ToUpper(os.Getenv("CORE_LOGGING_LEVEL")) // (default = not set)|CRITICAL|ERROR|WARNING|NOTICE|INFO|DEBUG
@@ -1037,9 +1043,9 @@ func main() {
         if envvar != "" { orderers, _ = strconv.Atoi(envvar); testcmd += " OTE_ORDERERS="+envvar }
         if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_ORDERERS="+envvar, "orderers", orderers)) }
 
-        envvar = os.Getenv("ORDERER_GENESIS_ORDERERTYPE")
-        if envvar != "" { ordType = envvar; testcmd += " ORDERER_GENESIS_ORDERERTYPE="+envvar }
-        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%s", "ORDERER_GENESIS_ORDERERTYPE="+envvar, "ordType", ordType)) }
+        envvar = os.Getenv(OrdererTypeParamStr)
+        if envvar != "" { ordType = envvar; testcmd += OrdererTypeParamStr+"="+envvar }
+        if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%s", OrdererTypeParamStr+"="+envvar, "ordType", ordType)) }
 
         envvar = os.Getenv("OTE_KAFKABROKERS")
         if envvar != "" { kbs, _ = strconv.Atoi(envvar); testcmd += " OTE_KAFKABROKERS="+envvar }
