@@ -12,23 +12,23 @@ var KAFKA=0;
 // Orderer environment var
 var ord_env_name=[];
 var ord_env_val=[];
-if ( process.env.ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT != null ) {
-    console.log(' ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT= ', process.env.ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT);
-    ord_env_name.push('ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT');
-    ord_env_val.push(process.env.ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT);
+if ( process.env.CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT != null ) {
+    console.log(' CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT= ', process.env.CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT);
+    ord_env_name.push('CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT');
+    ord_env_val.push(process.env.CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT);
 }
-if ( process.env.ORDERER_GENESIS_ORDERERTYPE != null ) {
-    console.log(' ORDERER_GENESIS_ORDERERTYPE= ', process.env.ORDERER_GENESIS_ORDERERTYPE);
-    ord_env_name.push('ORDERER_GENESIS_ORDERERTYPE');
-    ord_env_val.push(process.env.ORDERER_GENESIS_ORDERERTYPE);
-    if ( process.env.ORDERER_GENESIS_ORDERERTYPE == 'kafka' ) {
+if ( process.env.CONFIGTX_ORDERER_ORDERERTYPE != null ) {
+    console.log(' CONFIGTX_ORDERER_ORDERERTYPE= ', process.env.CONFIGTX_ORDERER_ORDERERTYPE);
+    ord_env_name.push('CONFIGTX_ORDERER_ORDERERTYPE');
+    ord_env_val.push(process.env.CONFIGTX_ORDERER_ORDERERTYPE);
+    if ( process.env.CONFIGTX_ORDERER_ORDERERTYPE == 'kafka' ) {
        KAFKA=1;
     }
 }
-if ( process.env.ORDERER_GENESIS_BATCHTIMEOUT != null ) {
-    console.log(' ORDERER_GENESIS_BATCHTIMEOUT= ', process.env.ORDERER_GENESIS_BATCHTIMEOUT);
-    ord_env_name.push('ORDERER_GENESIS_BATCHTIMEOUT');
-    ord_env_val.push(process.env.ORDERER_GENESIS_BATCHTIMEOUT);
+if ( process.env.CONFIGTX_ORDERER_BATCHTIMEOUT != null ) {
+    console.log(' CONFIGTX_ORDERER_BATCHTIMEOUT= ', process.env.CONFIGTX_ORDERER_BATCHTIMEOUT);
+    ord_env_name.push('CONFIGTX_ORDERER_BATCHTIMEOUT');
+    ord_env_val.push(process.env.CONFIGTX_ORDERER_BATCHTIMEOUT);
 }
 
 console.log('ord_env_name: ', ord_env_name.length, ord_env_name);
@@ -262,7 +262,7 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                     if ( tmp >= 0 ) {
                                         buff = '  ' + '    - ' + lvl3_key[m] + '=' + ord_env_val[tmp] + '\n';
                                         fs.appendFileSync(dFile, buff);
-                                    } else if ( lvl3_key[m] == 'ORDERER_KAFKA_BROKERS' ) {
+                                    } else if ( lvl3_key[m] == 'CONFIGTX_ORDERER_KAFKA_BROKERS' ) {
                                         if ( addBroker > 0 ) {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=[';
                                             for (n=0; n<addBroker; n++) {
@@ -274,7 +274,7 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                             buff = buff + ']' + '\n';
                                             fs.appendFileSync(dFile, buff);
                                         }
-                                    } else if ( lvl3_key[m] == 'ORDERER_GENESIS_ORDERERTYPE' ) {
+                                    } else if ( lvl3_key[m] == 'CONFIGTX_ORDERER_ORDERERTYPE' ) {
                                             if ( addBroker > 0 ) {
                                                 buff = '  ' + '    - ' + lvl3_key[m] + '=' + 'kafka' + '\n';
                                                 fs.appendFileSync(dFile, buff);

@@ -31,20 +31,20 @@ while getopts ":l:d:w:x:b:c:t:a:o:k:p:" opt; do
 
     # orderer environment options
     b)
-      ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=$OPTARG
-      export ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=$ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT
-      echo "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT: $ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT"
+      CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT=$OPTARG
+      export CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT=$CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT
+      echo "CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT: $CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT"
       ;;
     c)
-      ORDERER_GENESIS_BATCHTIMEOUT=$OPTARG
-      export ORDERER_GENESIS_BATCHTIMEOUT=$ORDERER_GENESIS_BATCHTIMEOUT
-      echo "ORDERER_GENESIS_BATCHTIMEOUT: $ORDERER_GENESIS_BATCHTIMEOUT"
+      CONFIGTX_ORDERER_BATCHTIMEOUT=$OPTARG
+      export CONFIGTX_ORDERER_BATCHTIMEOUT=$CONFIGTX_ORDERER_BATCHTIMEOUT
+      echo "CONFIGTX_ORDERER_BATCHTIMEOUT: $CONFIGTX_ORDERER_BATCHTIMEOUT"
       ;;
     t)
-      ORDERER_GENESIS_ORDERERTYPE=$OPTARG
-      export ORDERER_GENESIS_ORDERERTYPE=$ORDERER_GENESIS_ORDERERTYPE
-      echo "ORDERER_GENESIS_ORDERERTYPE: $ORDERER_GENESIS_ORDERERTYPE"
-      if [$nBroker == 0 ] && [ $ORDERER_GENESIS_ORDERERTYPE == 'kafka' ]; then
+      CONFIGTX_GENESIS_ORDERERTYPE=$OPTARG
+      export CONFIGTX_GENESIS_ORDERERTYPE=$CONFIGTX_ORDERER_ORDERERTYPE
+      echo "CONFIGTX_ORDERER_ORDERERTYPE: $CONFIGTX_ORDERER_ORDERERTYPE"
+      if [ $nBroker == '0' ] && [ $CONFIGTX_ORDERER_ORDERERTYPE == 'kafka' ]; then
           nBroker=1   # must have at least 1
       fi
       ;;
@@ -103,8 +103,8 @@ if [ $InvalidArgs == 1 ]; then
    exit
 fi
 
-if [ $nBroker -gt 0 ] && [ $ORDERER_GENESIS_ORDERERTYPE == 'solo' ]; then
-    echo "reset Broker number to 0 due to the ORDERER_GENESIS_ORDERERTYPE=$ORDERER_GENESIS_ORDERERTYPE"
+if [ $nBroker -gt 0 ] && [ $CONFIGTX_ORDERER_ORDERERTYPE == 'solo' ]; then
+    echo "reset Broker number to 0 due to the ORDERER_GENESIS_ORDERERTYPE=$CONFIGTX_ORDERER_ORDERERTYPE"
     nBroker=0
 fi
 
@@ -112,14 +112,14 @@ fi
 ##OSName=`uname`
 ##echo "Operating System: $OSName"
 
-for i in orderer
-do
-j=peer
-TMP=$(curl -s -S 'https://registry.hub.docker.com/v2/repositories/rameshthoomu/fabric-'"$i"'-x86_64/tags/' | awk '{for(i=1;i<=NF;i++)if($i~/"name":/)print $(i+1)}' | grep "x86_64" | awk 'NR==1{print $1}' | tr -d "\"|,")
-sed 's/\(.*fabric-'"$i"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/;s/\(.*fabric-'"$j"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/' network.json > network.json.tmp
-cp network.json.tmp network.json
-rm network.json.tmp
-done
+#for i in orderer
+#do
+#j=peer
+#TMP=$(curl -s -S 'https://registry.hub.docker.com/v2/repositories/rameshthoomu/fabric-'"$i"'-x86_64/tags/' | awk '{for(i=1;i<=NF;i++)if($i~/"name":/)print $(i+1)}' | grep "x86_64" | awk 'NR==1{print $1}' | tr -d "\"|,")
+#sed 's/\(.*fabric-'"$i"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/;s/\(.*fabric-'"$j"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/' network.json > network.json.tmp
+#cp network.json.tmp network.json
+#rm network.json.tmp
+#done
 
 
 dbType=`echo "$db" | awk '{print tolower($0)}'`

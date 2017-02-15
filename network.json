@@ -10,11 +10,14 @@
             "bridge",
     "services": {
         "zookeeper": {
-            "image": "zookeeper:3.4.9",
-            "container_name": "zookeeper"
+            "image": "hyperledger/fabric-zookeeper",
+            "container_name": "zookeeper",
+            "networks": [
+                 "bridge"
+            ]
         },
         "kafka": {
-            "image": "kchristidis/kafka",
+            "image": "hyperledger/fabric-kafka",
             "environment": {
                  "KAFKA_BROKER_ID": "0",
                  "KAFKA_ZOOKEEPER_CONNECT": "zookeeper:2181",
@@ -37,25 +40,29 @@
             "container_name": "ca0"
         },
         "orderer": {
-            "image": "rameshthoomu/fabric-orderer-x86_64:x86_64-0.7.0-snapshot-95911f2",
+            "image": "hyperledger/fabric-orderer",
             "restart": "unless-stopped",
             "environment": {
                 "ORDERER_GENERAL_LEDGERTYPE": "ram",
-                "ORDERER_GENERAL_MAXWINDOWSIZE": "1000",
+                "ORDERER_GENERAL_MAXWINDOWSIZE": "10",
                 "ORDERER_GENERAL_LISTENADDRESS": "0.0.0.0",
                 "ORDERER_GENERAL_LISTENPORT": "5005",
-                "ORDERER_GENESIS_GENESISMETHOD": "provisional",
-                "ORDERER_GENESIS_GENESISFILE": "./genesisblock",
+                "ORDERER_GENERAL_GENESISMETHOD": "provisional",
+                "ORDERER_GENERAL_GENESISFILE": "./genesisblock",
                 "ORDERER_RAMLEDGER_HISTORY_SIZE": "100",
-                "ORDERER_GENESIS_ORDERERTYPE": "kafka",
-                "ORDERER_GENESIS_BATCHTIMEOUT": "10s",
-                "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT": "10",
-                "ORDERER_KAFKA_BROKERS": "0.0.0.0:9092"
+                "CONFIGTX_ORDERER_ORDERERTYPE": "kafka",
+                "CONFIGTX_ORDERER_ADDRESSES": "[0.0.0.0:5005]",
+                "CONFIGTX_ORDERER_BATCHTIMEOUT": "10s",
+                "CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT": "10",
+                "CONFIGTX_ORDERER_KAFKA_BROKERS": "0.0.0.0:9092"
             },
             "working_dir": "/opt/gopath/src/github.com/hyperledger/fabric/orderer",
             "command": "orderer",
             "ports": [
                  "5005:5005"
+            ],
+            "volumes": [
+              "/opt/gopath/src/github.com/hyperledger/fabric/msp/sampleconfig:/etc/hyperledger/msp/sampleconfig"
             ],
             "depends_on": [
                  "zookeeper",
@@ -78,7 +85,7 @@
             "container_name": "couchdb"
         },
         "peer": {
-            "image": "rameshthoomu/fabric-peer-x86_64:x86_64-0.7.0-snapshot-95911f2",
+            "image": "hyperledger/fabric-peer",
             "restart": "unless-stopped",
             "environment": {
                  "CORE_PEER_ID": "peer",
@@ -103,7 +110,8 @@
             },
             "working_dir": "/opt/gopath/src/github.com/hyperledger/fabric/peer",
             "volumes": [
-                  "/var/run:/host/var/run/"
+                  "/var/run:/host/var/run/",
+                  "/opt/gopath/src/github.com/hyperledger/fabric/msp/sampleconfig:/etc/hyperledger/msp/sampleconfig"
             ],
             "command": "peer node start",
             "links": [
@@ -122,7 +130,7 @@
         },
         "cli": {
             "container_name": "cli",
-            "image": "rameshthoomu/fabric-peer-x86_64:x86_64-0.7.0-snapshot-95911f2",
+            "image": "hyperledger/fabric-peer",
             "tty": "true",
             "environment": {
                   "GOPATH":"/opt/gopath",
