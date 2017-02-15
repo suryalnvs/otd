@@ -70,9 +70,9 @@ Check your Docker and Docker-Compose versions with the following commands:
 Find default values of all variables in hyperledger/fabric/orderer/orderer.yaml
 and hyperledger/fabric/peer/core.yaml.
 ```
-  ORDERER_GENESIS_ORDERERTYPE                  solo
-  ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT    10
-  ORDERER_GENESIS_BATCHTIMEOUT                 10
+  CONFIGTX_ORDERER_ORDERERTYPE                 solo
+  CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT   10
+  CONFIGTX_ORDERER_BATCHTIMEOUT                10
   CORE_LOGGING_LEVEL
   CORE_LEDGER_STATE_STATEDATABASE
   CORE_SECURITY_LEVEL
@@ -132,6 +132,6 @@ Choose which variables to modify from default values. For example:
 + 100 batches will be received on every orderer; this is the sum of the
   totals received on each channel on the orderer.
 ```bash
-  OTE_TXS=1000 OTE_CHANNELS=4 OTE_ORDERERS=2 ORDERER_GENESIS_ORDERERTYPE=kafka  ./ote
+  OTE_TXS=1000 OTE_CHANNELS=4 OTE_ORDERERS=2 CONFIGTX_ORDERER_ORDERERTYPE=kafka  ./ote
 ```
 

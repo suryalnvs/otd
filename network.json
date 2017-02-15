@@ -11,7 +11,10 @@
     "services": {
         "zookeeper": {
             "image": "hyperledger/fabric-zookeeper",
-            "container_name": "zookeeper"
+            "container_name": "zookeeper",
+            "networks": [
+                 "bridge"
+            ]
         },
         "kafka": {
             "image": "hyperledger/fabric-kafka",
@@ -44,13 +47,14 @@
                 "ORDERER_GENERAL_MAXWINDOWSIZE": "1000",
                 "ORDERER_GENERAL_LISTENADDRESS": "0.0.0.0",
                 "ORDERER_GENERAL_LISTENPORT": "5005",
-                "ORDERER_GENESIS_GENESISMETHOD": "provisional",
-                "ORDERER_GENESIS_GENESISFILE": "./genesisblock",
+                "ORDERER_GENERAL_GENESISMETHOD": "provisional",
+                "ORDERER_GENERAL_GENESISFILE": "./genesisblock",
                 "ORDERER_RAMLEDGER_HISTORY_SIZE": "100",
-                "ORDERER_GENESIS_ORDERERTYPE": "kafka",
-                "ORDERER_GENESIS_BATCHTIMEOUT": "10s",
-                "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT": "10",
-                "ORDERER_KAFKA_BROKERS": "0.0.0.0:9092"
+                "CONFIGTX_ORDERER_ORDERERTYPE": "kafka",
+                "CONFIGTX_ORDERER_ADDRESSES": "[0.0.0.0:5005]",
+                "CONFIGTX_ORDERER_BATCHTIMEOUT": "10s",
+                "CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT": "10",
+                "CONFIGTX_ORDERER_KAFKA_BROKERS": "0.0.0.0:9092"
             },
             "working_dir": "/opt/gopath/src/github.com/hyperledger/fabric/orderer",
             "command": "orderer",
@@ -60,6 +64,9 @@
             "depends_on": [
                  "zookeeper",
                  "kafka0"
+            ],
+            "volumes": [
+                 "/opt/gopath/src/github.com/hyperledger/fabric/msp/sampleconfig:/etc/hyperledger/msp/sampleconfig"
             ],
             "container_name": "orderer0",
             "networks": [
@@ -103,6 +110,7 @@
             },
             "working_dir": "/opt/gopath/src/github.com/hyperledger/fabric/peer",
             "volumes": [
+                  "/opt/gopath/src/github.com/hyperledger/fabric/msp/sampleconfig:/etc/hyperledger/msp/sampleconfig",
                   "/var/run:/host/var/run/"
             ],
             "command": "peer node start",

@@ -1,4 +1,3 @@
-
 /*
 Copyright IBM Corp. 2017 All Rights Reserved.
 
@@ -64,8 +63,9 @@ import (
         "log"
         "time"
         "sync"
-        "github.com/hyperledger/fabric/orderer/common/bootstrap/provisional"
-        "github.com/hyperledger/fabric/orderer/localconfig"
+        genesisconfig_provisional "github.com/hyperledger/fabric/common/configtx/tool/provisional"
+        genesisconfig "github.com/hyperledger/fabric/common/configtx/tool/localconfig" // config for genesis.yaml
+        "github.com/hyperledger/fabric/orderer/localconfig" // config, for the orderer.yaml
         cb "github.com/hyperledger/fabric/protos/common"
         ab "github.com/hyperledger/fabric/protos/orderer"
         "github.com/hyperledger/fabric/protos/utils"
@@ -74,7 +74,9 @@ import (
         "google.golang.org/grpc"
 )
 
-var GenesisConfigLocation string = "ORDERER_GENESIS_"
+var ordConf *config.TopLevel
+var genConf *genesisconfig.TopLevel
+var GenesisConfigLocation string = "CONFIGTX_ORDERER_"
 var OrdererConfigLocation string = "ORDERER_GENERAL_"
 var BatchSizeParamStr string = GenesisConfigLocation+"BATCHSIZE_MAXMESSAGECOUNT"
 var BatchTimeoutParamStr string = GenesisConfigLocation+"BATCHTIMEOUT"
@@ -120,7 +122,7 @@ var optimizeClientsMode bool = false
 
 var ordStartPort uint16 = 5005
 
-func resetGlobals() {
+func initialize() {
         // When running multiple tests, e.g. from go test, reset to defaults
         // for the parameters that could change per test.
         // We do NOT reset things that would apply to every test, such as
@@ -136,6 +138,7 @@ func resetGlobals() {
         numProducers = 1
         numTxToSend = 1
         producersPerCh = 1
+        InitLogger("ote")
 }
 
 func InitLogger(fileName string) {
@@ -190,8 +193,11 @@ func seekHelper(chainID string, start *ab.SeekPosition) *cb.Envelope {
         return &cb.Envelope{
                 Payload: utils.MarshalOrPanic(&cb.Payload{
                         Header: &cb.Header{
-                                ChainHeader: &cb.ChainHeader{
-                                        ChainID: chainID,
+                                //ChainHeader: &cb.ChainHeader{
+                                //        ChainID: b.chainID,
+                                //},
+                                ChannelHeader: &cb.ChannelHeader{
+                                        ChannelId: chainID,
                                 },
                                 SignatureHeader: &cb.SignatureHeader{},
                         },
@@ -246,8 +252,11 @@ func (r *ordererdriveClient) readUntilClose(ordererIndex int, channelIndex int, 
 func (b *broadcastClient) broadcast(transaction []byte) error {
         payload, err := proto.Marshal(&cb.Payload{
                 Header: &cb.Header{
-                        ChainHeader: &cb.ChainHeader{
-                                ChainID: b.chainID,
+                        //ChainHeader: &cb.ChainHeader{
+                        //        ChainID: b.chainID,
+                        //},
+                        ChannelHeader: &cb.ChannelHeader{
+                                ChannelId: b.chainID,
                         },
                         SignatureHeader: &cb.SignatureHeader{},
                 },
@@ -692,17 +701,18 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
 // Returns:     passed bool, resultSummary string
 func ote( testname string, txs int64, chans int, orderers int, ordType string, kbs int, masterSpy bool, pPerCh int ) (passed bool, resultSummary string) {
 
+        initialize() // multiple go tests could be run; we must call initialize() each time
+
         passed = false
         resultSummary = testname + " test not completed: INPUT ERROR: "
-        resetGlobals()
-        InitLogger("ote")
         defer CloseLogger()
 
         Logger(fmt.Sprintf("========== OTE testname=%s TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d addMasterSpy=%t producersPerCh=%d", testname, txs, chans, orderers, ordType, kbs, masterSpy, pPerCh))
 
         // Establish the default configuration from yaml files - and this also
         // picks up any variables overridden on command line or in environment
-        config := config.Load()  // establish the default configuration from yaml files,
+        ordConf = config.Load()
+        genConf = genesisconfig.Load()
         var launchAppendFlags string
 
         ////////////////////////////////////////////////////////////////////////
@@ -757,8 +767,8 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         // Arguments to override configuration parameter values in yaml file:
         //////////////////////////////////////////////////////////////////////
 
-        // ordererType
-        ordererType = config.Genesis.OrdererType
+        // ordererType is an argument of ote(), and is also in the genesisconfig
+        ordererType = genConf.Orderer.OrdererType
         if ordType != "" {
                 ordererType = ordType
         } else {
@@ -774,16 +784,16 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 }
         } else { numKBrokers = 0 }
 
-        // batchSize is not an argument of ote(), but this orderer.yaml config
+        // batchSize is not an argument of ote(), but is in the genesisconfig
         // variable may be overridden on command line or by exporting it.
-        batchSize := int64(config.Genesis.BatchSize.MaxMessageCount) // retype the uint32
+        batchSize := int64(genConf.Orderer.BatchSize.MaxMessageCount) // retype the uint32
         envvar = os.Getenv(BatchSizeParamStr)
         if envvar != "" { launchAppendFlags += fmt.Sprintf(" -b %d", batchSize) }
         if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", BatchSizeParamStr+"="+envvar, "batchSize", batchSize)) }
 
-        // batchTimeout
-        //Logger(fmt.Sprintf("DEBUG=====BatchTimeout config:%v config.Seconds-float():%v config.Seconds-int:%v", config.Genesis.BatchTimeout, (config.Genesis.BatchTimeout).Seconds(), int((config.Genesis.BatchTimeout).Seconds())))
-        batchTimeout := int((config.Genesis.BatchTimeout).Seconds()) // Seconds() converts time.Duration to float64, and then retypecast to int
+        // batchTimeout is not an argument of ote(), but is in the genesisconfig
+        //Logger(fmt.Sprintf("DEBUG=====BatchTimeout conf:%v Seconds-float():%v Seconds-int:%v", genConf.Orderer.BatchTimeout, (genConf.Orderer.BatchTimeout).Seconds(), int((genConf.Orderer.BatchTimeout).Seconds())))
+        batchTimeout := int((genConf.Orderer.BatchTimeout).Seconds()) // Seconds() converts time.Duration to float64, and then retypecast to int
         envvar = os.Getenv(BatchTimeoutParamStr)
         if envvar != "" { launchAppendFlags += fmt.Sprintf(" -c %d", batchTimeout) }
         if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", BatchTimeoutParamStr+"="+envvar, "batchTimeout", batchTimeout)) }
@@ -896,7 +906,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         // TEMPORARY PARTIAL SOLUTION: To test multiple orderers with a single channel,
         // use hardcoded TestChainID and skip creating any channels.
     if numChannels == 1 {
-      channelIDs[0] = provisional.TestChainID
+      channelIDs[0] = genesisconfig_provisional.TestChainID
       Logger(fmt.Sprintf("Using DEFAULT channelID = %s", channelIDs[0]))
     } else {
         Logger(fmt.Sprintf("Using %d new channelIDs, e.g. test-chan.00023", numChannels))
@@ -916,7 +926,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         // orderer uses ordStartPort, the second uses ordStartPort+1, etc.
 
         for ord := 0; ord < numOrdsToWatch; ord++ {
-                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort + uint16(ord))
+                serverAddr := fmt.Sprintf("%s:%d", ordConf.General.ListenAddress, ordStartPort + uint16(ord))
                 if masterSpy && ord == numOrdsToWatch-1 {
                         // Special case: this is the last row of counters,
                         // added (and incremented numOrdsToWatch) for the
@@ -924,7 +934,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                         // deliveries, on all channels. This will be a duplicate
                         // Consumer (it is the second one monitoring the first
                         // orderer), so we need to reuse the first port.
-                        serverAddr = fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort)
+                        serverAddr = fmt.Sprintf("%s:%d", ordConf.General.ListenAddress, ordStartPort)
                         go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
                 } else
                 if optimizeClientsMode {
@@ -957,7 +967,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         }
         sendStart := time.Now().Unix()
         for ord := 0; ord < numOrdsInNtwk; ord++ {
-                serverAddr := fmt.Sprintf("%s:%d", config.General.ListenAddress, ordStartPort + uint16(ord))
+                serverAddr := fmt.Sprintf("%s:%d", ordConf.General.ListenAddress, ordStartPort + uint16(ord))
                 for c := 0 ; c < numChannels ; c++ {
                         countToSend[ord][c] = numTxToSend / int64(numOrdsInNtwk * numChannels)
                         if c==0 && ord==0 { countToSend[ord][c] += numTxToSend % int64(numOrdsInNtwk * numChannels) }
@@ -1010,8 +1020,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
 
 func main() {
 
-        resetGlobals()
-        InitLogger("ote")
+        initialize()
 
         // Set reasonable defaults in case any env vars are unset.
         var txs int64 = 55
@@ -1044,7 +1053,7 @@ func main() {
         if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%d", "OTE_ORDERERS="+envvar, "orderers", orderers)) }
 
         envvar = os.Getenv(OrdererTypeParamStr)
-        if envvar != "" { ordType = envvar; testcmd += OrdererTypeParamStr+"="+envvar }
+        if envvar != "" { ordType = envvar; testcmd += " "+OrdererTypeParamStr+"="+envvar }
         if debugflagAPI { Logger(fmt.Sprintf("%-50s %s=%s", OrdererTypeParamStr+"="+envvar, "ordType", ordType)) }
 
         envvar = os.Getenv("OTE_KAFKABROKERS")

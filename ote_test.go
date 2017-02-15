@@ -1,4 +1,3 @@
-
 /*
 Copyright IBM Corp. 2017 All Rights Reserved.
 
@@ -30,31 +29,27 @@ func Test_1tx_1ch_1ord_Solo(t *testing.T) {
         if !passResult { t.Fail() }
 }
 
-// 77
-// 78 = 77 rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
-func Test_ORD77_ORD78_10000TX_1ch_1ord_solo_batchIT(t *testing.T) {
+// 77, 78 = rerun with batchsize = 500 // CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT=500
+func Test_ORD77_ORD78_10000TX_1ch_1ord_solo_batchSz(t *testing.T) {
         //fmt.Println("Send 10,000 TX on 1 channel to 1 Solo orderer")
         passResult, finalResultSummaryString := ote("ORD-77_ORD-78", 10000, 1, 1, "solo", 0, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-// 79
-// 80 = rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
-func Test_ORD79_ORD80_10000TX_1ch_1ord_kafka_1kbs_batchIT(t *testing.T) {
+// 79, 80 = rerun with batchsize = 500
+func Test_ORD79_ORD80_10000TX_1ch_1ord_kafka_1kbs_batchSz(t *testing.T) {
         passResult, finalResultSummaryString := ote("ORD-79,ORD-80", 10000, 1, 1, "kafka", 1, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-// 81
-// 82 = rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
-func Test_ORD81_ORD82_10000TX_3ch_1ord_kafka_3kbs_batchIT(t *testing.T) {
+// 81, 82 = rerun with batchsize = 500
+func Test_ORD81_ORD82_10000TX_3ch_1ord_kafka_3kbs_batchSz(t *testing.T) {
         passResult, finalResultSummaryString := ote("ORD-81,ORD-82", 10000, 3, 1, "kafka", 3, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-// 83
-// 84 = rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
-func Test_ORD83_ORD84_10000TX_3ch_3ord_kafka_3kbs_batchIT(t *testing.T) {
+// 83, 84 = rerun with batchsize = 500
+func Test_ORD83_ORD84_10000TX_3ch_3ord_kafka_3kbs_batchSz(t *testing.T) {
         passResult, finalResultSummaryString := ote("ORD-83,ORD-84", 10000, 3, 3, "kafka", 3, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
