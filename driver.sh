@@ -31,20 +31,20 @@ while getopts ":l:d:w:x:b:c:t:a:o:k:p:" opt; do
 
     # orderer environment options
     b)
-      CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT=$OPTARG
-      export CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT=$CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT
-      echo "CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT: $CONFIGTX_ORDERER_BATCHSIZE_MAXMESSAGECOUNT"
+      ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=$OPTARG
+      export ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=$ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT
+      echo "ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT: $ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT"
       ;;
     c)
-      CONFIGTX_ORDERER_BATCHTIMEOUT=$OPTARG
-      export CONFIGTX_ORDERER_BATCHTIMEOUT=$CONFIGTX_ORDERER_BATCHTIMEOUT
-      echo "CONFIGTX_ORDERER_BATCHTIMEOUT: $CONFIGTX_ORDERER_BATCHTIMEOUT"
+      ORDERER_GENESIS_BATCHTIMEOUT=$OPTARG
+      export ORDERER_GENESIS_BATCHTIMEOUT=$ORDERER_GENESIS_BATCHTIMEOUT
+      echo "ORDERER_GENESIS_BATCHTIMEOUT: $ORDERER_GENESIS_BATCHTIMEOUT"
       ;;
     t)
-      CONFIGTX_GENESIS_ORDERERTYPE=$OPTARG
-      export CONFIGTX_GENESIS_ORDERERTYPE=$CONFIGTX_ORDERER_ORDERERTYPE
-      echo "CONFIGTX_ORDERER_ORDERERTYPE: $CONFIGTX_ORDERER_ORDERERTYPE"
-      if [ $nBroker == '0' ] && [ $CONFIGTX_ORDERER_ORDERERTYPE == 'kafka' ]; then
+      ORDERER_GENESIS_ORDERERTYPE=$OPTARG
+      export ORDERER_GENESIS_ORDERERTYPE=$ORDERER_GENESIS_ORDERERTYPE
+      echo "ORDERER_GENESIS_ORDERERTYPE: $ORDERER_GENESIS_ORDERERTYPE"
+      if [$nBroker == 0 ] && [ $ORDERER_GENESIS_ORDERERTYPE == 'kafka' ]; then
           nBroker=1   # must have at least 1
       fi
       ;;
@@ -82,7 +82,7 @@ done
 
 if [ $InvalidArgs == 1 ]; then
    echo "Usage: "
-   echo " ./driver_ord.sh [opt] [value] "
+   echo " ./driver.sh [opt] [value] "
    echo "    network variables"
    echo "    -a: action [create|add] "
    echo "    -p: number of peers "
@@ -103,23 +103,14 @@ if [ $InvalidArgs == 1 ]; then
    exit
 fi
 
-if [ $nBroker -gt 0 ] && [ $CONFIGTX_ORDERER_ORDERERTYPE == 'solo' ]; then
-    echo "reset Broker number to 0 due to the ORDERER_GENESIS_ORDERERTYPE=$CONFIGTX_ORDERER_ORDERERTYPE"
+if [ $nBroker -gt 0 ] && [ $ORDERER_GENESIS_ORDERERTYPE == 'solo' ]; then
+    echo "reset Broker number to 0 due to the ORDERER_GENESIS_ORDERERTYPE=$ORDERER_GENESIS_ORDERERTYPE"
     nBroker=0
 fi
 
 #OS
 ##OSName=`uname`
 ##echo "Operating System: $OSName"
-
-#for i in orderer
-#do
-#j=peer
-#TMP=$(curl -s -S 'https://registry.hub.docker.com/v2/repositories/rameshthoomu/fabric-'"$i"'-x86_64/tags/' | awk '{for(i=1;i<=NF;i++)if($i~/"name":/)print $(i+1)}' | grep "x86_64" | awk 'NR==1{print $1}' | tr -d "\"|,")
-#sed 's/\(.*fabric-'"$i"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/;s/\(.*fabric-'"$j"'-x86_64\)\(.*\)/\1:'"$TMP"'\"\,/' network.json > network.json.tmp
-#cp network.json.tmp network.json
-#rm network.json.tmp
-#done
 
 
 dbType=`echo "$db" | awk '{print tolower($0)}'`
@@ -131,8 +122,9 @@ echo "existing peers: $VP"
 echo "remove old docker-composer.yml"
 rm -f docker-compose.yml
 
-echo "docker pull https://hub.docker.com/r/rameshthoomu/fabric-ccenv-x86_64"
-docker pull rameshthoomu/fabric-ccenv-x86_64
+#REMOVED FROM ORIG SCRIPT:
+#echo "docker pull https://hub.docker.com/r/rameshthoomu/fabric-ccenv-x86_64"
+#docker pull rameshthoomu/fabric-ccenv-x86_64
 
 # form json input file
 if [ $nBroker == 0 ]; then
@@ -164,8 +156,9 @@ node json2yml.js $jsonFILE $N1 $nOrderer $nBroker $dbType
 # create network
 if [ $Req == "create" ]; then
 
+   #CHANGED FROM ORIG SCRIPT
+   #docker-compose -f docker-compose.yml up -d --force-recreate $VPN cli
    docker-compose -f docker-compose.yml up -d --force-recreate $VPN
-   ##docker-compose -f docker-compose.yml up -d --force-recreate $VPN
    for ((i=1; i<$nOrderer; i++))
    do
        tmpOrd="orderer"$i

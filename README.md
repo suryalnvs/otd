@@ -47,10 +47,13 @@ Check your Docker and Docker-Compose versions with the following commands:
   docker-compose version
 ```
 
-### Clone the repository, and change to the correct directory
+### Clone the repository, build the binaries and images
 ```bash
   git clone https://github.com/hyperledger-fabric.git
-  cd hyperledger/fabric/bddtests/regression/ote
+  cd $GOPATH/src/github.com/hyperledger/fabric
+  make native
+  make docker
+  cd $GOPATH/src/github.com/hyperledger/fabric/bddtests/regression/ote
 ```
 
 ### Environment Variables for test setup, with defaults:
@@ -85,7 +88,7 @@ to execute either one test, or all go tests, or
 a subset of existing functional go tests using a regular expression
 to choose tests in local test files.
 ```bash
-  cd hyperledger/fabric/bddtests/regression/ote
+  cd $GOPATH/src/github.com/hyperledger/fabric/bddtests/regression/ote
   go test -run ORD77
   go test -timeout 2h
   go test -run batch -timeout 20m
@@ -98,13 +101,13 @@ executed from Jenkins by Continuous Improvement processes.
 
 #### Pre-requisite to convert "go test" output to xml
 ```bash
-  cd hyperledger/fabric/bddtests/regression/ote
+  cd $GOPATH/src/github.com/hyperledger/fabric/bddtests/regression/ote
   go get github.com/jstemmer/go-junit-report
 ```
 #### Example command to execute a all "go tests" and convert to xml:
 ```
-  cd hyperledger/fabric/bddtests/regression/ote
-  go test -v | go-junit-report > report.xml
+  cd $GOPATH/src/github.com/hyperledger/fabric/bddtests/regression/ote
+  go test -v -timeout 120m | go-junit-report > ote_report.xml
 ```
 
 ### Execute Orderer Traffic Engine (OTE) on shell command line
@@ -112,7 +115,7 @@ There are several environment variables to control the test parameters,
 such as number of transactions, number of orderers, ordererType, and more.
 To see an example test using default settings, simply execute the following.
 ```bash
-  cd .hyperledger/fabric/bddtests/regression/ote
+  cd $GOPATH/src/github.com/hyperledger/fabric/bddtests/regression/ote
   go build
   ./ote
 ```
