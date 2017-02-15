@@ -15,37 +15,88 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package ote        // Orderer Test Engine
+package main        // Orderer Test Engine
 
 import (
         "fmt"
         "testing"
 )
 
-
-// input args:  ote ( ordererType string, kbs int, txs int64, oUsed int, oInNtwk int, chans int )
-// outputs:     print report to stdout with lots of counters!
-// returns:     finalPassFailResult, finalResultSummaryString
-
-
-/*
-func Test_Solo_100000TX_1ch(t *testing.T) {
-        fmt.Println("START: Solo test: send 100,000 TX")
-        passResult, finalResultSummaryString := ote("solo", 0, 100000, 1, 1, 1 )
+// simplest testcase
+func Test_1tx_1ch_1ord_Solo(t *testing.T) {
+        fmt.Println("\nSimplest test: Send 1 TX on 1 channel to 1 Solo orderer")
+        passResult, finalResultSummaryString := ote("Test_1tx_1ch_1ord_Solo", 1, 1, 1, "solo", 0, false, 1 )
         t.Log(finalResultSummaryString)
         if !passResult { t.Fail() }
 }
-*/
 
-func Test_kafka_3KBs_100000TX_1of1ord_1ch(t *testing.T) {
-        fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 1 of a network of 1 Orderers, using 1 channel")
-        passResult, finalResultSummaryString := ote("kafka", 3, 100000, 1, 1, 1 )
+// 77
+// 78 = 77 rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
+func Test_ORD77_ORD78_10000TX_1ch_1ord_solo_batchIT(t *testing.T) {
+        //fmt.Println("Send 10,000 TX on 1 channel to 1 Solo orderer")
+        passResult, finalResultSummaryString := ote("ORD-77_ORD-78", 10000, 1, 1, "solo", 0, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
-func Test_kafka_3KBs_100000TX_3of3ord_1ch(t *testing.T) {
-        fmt.Println("START: Kafka test with 3 KBs, send 100,000 TX to 3 of a network of 3 Orderers, using 1 channel")
-        passResult, finalResultSummaryString := ote("kafka", 3, 100000, 3, 3, 1 )
+// 79
+// 80 = rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
+func Test_ORD79_ORD80_10000TX_1ch_1ord_kafka_1kbs_batchIT(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-79,ORD-80", 10000, 1, 1, "kafka", 1, false, 1 )
         if !passResult { t.Error(finalResultSummaryString) }
 }
 
+// 81
+// 82 = rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
+func Test_ORD81_ORD82_10000TX_3ch_1ord_kafka_3kbs_batchIT(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-81,ORD-82", 10000, 3, 1, "kafka", 3, false, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 83
+// 84 = rerun with ORDERER_GENESIS_BATCHTIMEOUT_MAXMESSAGECOUNT=500
+func Test_ORD83_ORD84_10000TX_3ch_3ord_kafka_3kbs_batchIT(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-83,ORD-84", 10000, 3, 3, "kafka", 3, false, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 85
+func Test_ORD85_1000000TX_1ch_3ord_kafka_3kbs_spy(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-85", 1000000, 1, 3, "kafka", 3, true, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 86
+func Test_ORD86_1000000TX_3ch_1ord_kafka_3kbs_spy(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-86", 1000000, 1, 1, "kafka", 3, true, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 87
+func Test_ORD87_1000000TX_3ch_3ord_kafka_3kbs_spy(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-87", 1000000, 3, 3, "kafka", 3, true, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 88
+func Test_ORD88_1000000TX_1ch_1ord_kafka_3kbs_spy_3ppc(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-88", 1000000, 1, 1, "kafka", 3, true, 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 89
+func Test_ORD89_1000000TX_3ch_3ord_kafka_3kbs_spy_3ppc(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-89", 1000000, 3, 3, "kafka", 3, true, 3 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 90
+func Test_ORD90_1000000TX_100ch_1ord_kafka_3kbs_spy(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-90", 1000000, 100, 1, "kafka", 3, true, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
+
+// 91
+func Test_ORD91_1000000TX_100ch_3ord_kafka_3kbs(t *testing.T) {
+        passResult, finalResultSummaryString := ote("ORD-91", 1000000, 100, 3, "kafka", 3, true, 1 )
+        if !passResult { t.Error(finalResultSummaryString) }
+}
