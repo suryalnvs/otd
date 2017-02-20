@@ -42,16 +42,6 @@ if ( process.env.CORE_LOGGING_LEVEL != null ) {
     peer_env_name.push('CORE_LOGGING_LEVEL');
     peer_env_val.push(process.env.CORE_LOGGING_LEVEL);
 }
-if ( process.env.CORE_SECURITY_LEVEL != null ) {
-    console.log(' CORE_SECURITY_LEVEL= ', process.env.CORE_SECURITY_LEVEL);
-    peer_env_name.push('CORE_SECURITY_LEVEL');
-    peer_env_val.push(process.env.CORE_SECURITY_LEVEL);
-}
-if ( process.env.CORE_SECURITY_HASHALGORITHM != null ) {
-    console.log(' CORE_SECURITY_HASHALGORITHM= ', process.env.CORE_SECURITY_HASHALGORITHM);
-    peer_env_name.push('CORE_SECURITY_HASHALGORITHM');
-    peer_env_val.push(process.env.CORE_SECURITY_HASHALGORITHM);
-}
 
 console.log('peer_env_name: ', peer_env_name.length, peer_env_name);
 console.log('peer_env_val: ', peer_env_val.length, peer_env_val);
@@ -285,7 +275,7 @@ for ( i0=0; i0<top_key.length; i0++ ) {
                                     } else if ( lvl3_key[m] == 'ORDERER_GENERAL_LISTENPORT' ) {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + ordererPort + '\n';
                                             fs.appendFileSync(dFile, buff);
-                                    } else if ( ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISMETHOD' ) || ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISFILE' ) ) {
+                                    } else if ( ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISMETHOD' ) || ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISFILE' ) || ( lvl3_key[m] == 'ORDERER_GENERAL_GENESISFILE' ) ) {
                                         if ( addBroker > 0 ) {
                                             buff = '  ' + '    - ' + lvl3_key[m] + '=' + lvl2_obj[lvl3_key[m]] + '\n';
                                             fs.appendFileSync(dFile, buff);

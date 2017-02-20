@@ -6,7 +6,7 @@ InvalidArgs=0
 nBroker=0
 nPeer=1
 
-while getopts ":l:d:w:x:b:c:t:a:o:k:p:" opt; do
+while getopts ":l:d:b:c:t:a:o:k:p:" opt; do
   case $opt in
     # peer environment options
     l)
@@ -17,16 +17,6 @@ while getopts ":l:d:w:x:b:c:t:a:o:k:p:" opt; do
     d)
       db=$OPTARG
       echo "ledger state database type: $db"
-      ;;
-    w)
-      CORE_SECURITY_LEVEL=$OPTARG
-      export CORE_SECURITY_LEVEL=$CORE_SECURITY_LEVEL
-      echo "CORE_SECURITY_LEVEL: $CORE_SECURITY_LEVEL"
-      ;;
-    x)
-      CORE_SECURITY_HASHALGORITHM=$OPTARG
-      export CORE_SECURITY_HASHALGORITHM=$CORE_SECURITY_HASHALGORITHM
-      echo "CORE_SECURITY_HASHALGORITHM: $CORE_SECURITY_HASHALGORITHM"
       ;;
 
     # orderer environment options
@@ -91,8 +81,6 @@ if [ $InvalidArgs == 1 ]; then
    echo " "
    echo "    peer environment variables"
    echo "    -l: core logging level [(deafult = not set)|CRITICAL|ERROR|WARNING|NOTICE|INFO|DEBUG]"
-   echo "    -w: core security level [256|384]"
-   echo "    -x: core security hash algorithm [SHA2|SHA3]"
    echo "    -d: core ledger state DB [goleveldb|couchdb] "
    echo " "
    echo "    orderer environment variables"
@@ -121,10 +109,6 @@ echo "existing peers: $VP"
 
 echo "remove old docker-composer.yml"
 rm -f docker-compose.yml
-
-#REMOVED FROM ORIG SCRIPT:
-#echo "docker pull https://hub.docker.com/r/rameshthoomu/fabric-ccenv-x86_64"
-#docker pull rameshthoomu/fabric-ccenv-x86_64
 
 # form json input file
 if [ $nBroker == 0 ]; then
