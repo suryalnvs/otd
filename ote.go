@@ -92,6 +92,7 @@ var debugflag3 = false // most detailed and voluminous
 var extraTxData = ""
 // var extraTxData = "00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef"
 
+var masterSpyReadyWG sync.WaitGroup
 var producersWG sync.WaitGroup
 var logFile *os.File
 var logEnabled = false
@@ -129,6 +130,22 @@ var optimizeClientsMode = false
 var ordStartPort uint16 = 5005
 var peerStartPort uint16 = 7061
 
+const (
+        SPY_OFF = 0               // No MasterSpy
+        SPY_ON = 1                // Yes, start MasterSpy upon initialization / test startup
+        SPY_DEFER = 1             // Yes, prepare counter arrays for MasterSpy, but user will call function later to connect spy consumer
+)
+var masterSpy = SPY_OFF
+var masterSpyOrdIndx = 0          // MasterSpy will connect to this Orderer
+var masterSpyIsActive = false
+
+func spyStatus(spyState int) string {
+        if spyState == SPY_OFF { return "SPY_OFF" }
+        if spyState == SPY_ON { return "SPY_ON" }
+        if spyState == SPY_DEFER { return "SPY_DEFER" }
+        return ( fmt.Sprintf("UNKNOWN (%d)", spyState) )
+}
+
 func initialize() {
         // When running multiple tests, e.g. from go test, reset to defaults
         // for the parameters that could change per test.
@@ -145,6 +162,8 @@ func initialize() {
         numProducers = 1
         numTxToSend = 1
         producersPerCh = 1
+        masterSpy = SPY_OFF
+        masterSpyOrdIndx = 0
         initLogger("ote")
 }
 
@@ -341,6 +360,37 @@ func startConsumerMaster(serverAddr string, chanIdsP *[]string, ordererIndex int
         }
 }
 
+func startSpyDefer(listenAddr string, ordStartPort uint16, chanIdsP *[]string, ordererIndex int, txRecvCntrsP *[]int64, blockRecvCntrsP *[]int64, consumerConnP **grpc.ClientConn) {
+
+        // Wait here until the user test application code successfully calls
+        // startMasterSpy(), and provides a masterSpyOrdIndx
+
+        masterSpyReadyWG.Wait()
+
+        logger(fmt.Sprintf("=== startSpyDefer proceeding to startConsumerMaster to spy on orderer%d", masterSpyOrdIndx))
+        serverAddr := fmt.Sprintf("%s:%d", listenAddr, ordStartPort + uint16(masterSpyOrdIndx))
+        startConsumerMaster(serverAddr, chanIdsP, ordererIndex, txRecvCntrsP, blockRecvCntrsP, consumerConnP)
+}
+
+// This API function can be called by go tests in one thread, some time (at least 20 seconds)
+// after calling ote to start the traffic in main flow. Pass in (-1) to use OTE_SPY_ORDERER.
+func startMasterSpy(ordToWatch int) {
+        if masterSpyIsActive {
+                logger(fmt.Sprintf("Test Error: Cannot start more than one MasterSpy. Already watching orderer %d.", masterSpyOrdIndx))
+                return
+        }
+        if ordToWatch >= numOrdsInNtwk {
+                logger(fmt.Sprintf("Test Error: Cannot start MasterSpy to watch orderer index %d. Only %d orderers exist in network.", ordToWatch, numOrdsInNtwk))
+                return
+        }
+        if ordToWatch >= 0 {
+                masterSpyOrdIndx = ordToWatch
+        }
+        // else ok to keep using masterSpyOrdIndx default or what was passed in already in env variable OTE_SPY_ORDERER.
+        masterSpyIsActive = true
+        masterSpyReadyWG.Done()
+}
+
 func clientName(clientType string, ordIdx int, chIdx int) string {
         return (fmt.Sprintf("%s-o%d-c%d", clientType, ordIdx, chIdx))
 }
@@ -353,7 +403,7 @@ func joinChannel(serverAddr string, clientName string, chIdStr string) {
         cmd += fmt.Sprintf(" peer channel join -b %s.block", chIdStr)
 
     // skip, while under construction...
-    logger(fmt.Sprintf("SKIP        client=%s, cmd=%s", clientName, cmd))
+    if debugflag1 { logger(fmt.Sprintf("SKIP        client=%s, cmd=%s", clientName, cmd)) }
     return
 
         logger(fmt.Sprintf("client=%s, cmd=%s", clientName, cmd))
@@ -453,6 +503,7 @@ func startProducer(serverAddr string, chanId string, ordererIndex int, channelIn
         if err != nil {
                 panic(fmt.Sprintf("Error creating connection for Producer for ord[%d] ch[%d], err: %v", ordererIndex, channelIndex, err))
         }
+        time.Sleep(2 * time.Second)
         client, err := ab.NewAtomicBroadcastClient(conn).Broadcast(context.TODO())
         if err != nil {
                 panic(fmt.Sprintf("Error creating Producer for ord[%d] ch[%d], err: %v", ordererIndex, channelIndex, err))
@@ -461,6 +512,7 @@ func startProducer(serverAddr string, chanId string, ordererIndex int, channelIn
         if debugflag1 { logger(fmt.Sprintf("Starting Producer to send %d TXs to ord[%d] ch[%d] srvr=%s chID=%s, %v", txReq, ordererIndex, channelIndex, serverAddr, chanId, time.Now())) }
         b := newBroadcastClient(client, chanId)
         joinChannel(serverAddr, myName, chanId)
+        time.Sleep(2 * time.Second)
 
         // print a log after sending mulitples of this percentage of requested TX: 25,50,75%...
         // only on one producer, and assume all producers are generating at same rate.
@@ -468,11 +520,13 @@ func startProducer(serverAddr string, chanId string, ordererIndex int, channelIn
         printProgressLogs := false
 	var progressPercentage int64 = 25    // set this between 1 and 99
 	printLogCnt := txReq * progressPercentage / 100
-        if debugflag1 {
-                printProgressLogs = true     // to test logs for all producers
-        } else {
-                if txReq > 10000 && printLogCnt > 0 && ordererIndex==0 && channelIndex==0 {
-                        printProgressLogs = true
+        if printLogCnt > 0 {
+                if debugflag1 {
+                        printProgressLogs = true     // to test logs for all producers
+                } else {
+                        if txReq > 10000 && printLogCnt > 0 && ordererIndex==0 && channelIndex==0 {
+                                printProgressLogs = true
+                        }
                 }
         }
         var mult int64 = 0
@@ -483,7 +537,7 @@ func startProducer(serverAddr string, chanId string, ordererIndex int, channelIn
                 err = b.getAck()
                 if err == nil {
                         (*txSentCntrP)++ 
-                        if printProgressLogs && (*txSentCntrP)%printLogCnt == 0 {
+                        if printProgressLogs && ((*txSentCntrP)%printLogCnt == 0) {
                                 mult++
                                 if debugflag1 {
                                         logger(fmt.Sprintf("%s sent %4d /%4d = ~ %3d%%, %v", myName, (*txSentCntrP), txReq, progressPercentage*mult, time.Now()))
@@ -622,7 +676,7 @@ func computeTotals(txSent *[][]int64, totalNumTxSent *int64, txSentFailures *[][
         if debugflag2 { logger(fmt.Sprintf("in compute(): totalTxRecv[]= %v, totalBlockRecv[]= %v", *totalTxRecv, *totalBlockRecv)) }
 }
 
-func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, masterSpy bool, channelIDs *[]string) (successResult bool, resultStr string) {
+func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64, txSent [][]int64, totalNumTxSent int64, txSentFailures [][]int64, totalNumTxSentFailures int64, batchSize int64, txRecv [][]int64, totalTxRecv []int64, totalTxRecvMismatch bool, blockRecv [][]int64, totalBlockRecv []int64, totalBlockRecvMismatch bool, channelIDs *[]string) (successResult bool, resultStr string) {
 
         // default to failed
         var passFailStr = "FAILED"
@@ -656,10 +710,12 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
         logger("CONSUMERS   OrdererIdx  ChannelIdx ChannelID                    TXs     Batches")
         for i := 0; i < numOrdsToWatch; i++ {
                 for j := 0; j < numChannels; j++ {
-                        if (j < 3 && (i < 3 || (masterSpy && i==numOrdsInNtwk-1))) || (i>1 && (blockRecv[i][j] != blockRecv[1][j] || txRecv[1][j] != txRecv[1][j])) {
+                        if (j < 3 && (i < 3 || (masterSpy != SPY_OFF && i==numOrdsToWatch-1))) || (i>1 && (blockRecv[i][j] != blockRecv[1][j] || txRecv[1][j] != txRecv[1][j])) {
                                 // Subtract one from the received Block count and TX count, to ignore the genesis block
                                 // (we already ignore genesis blocks when we compute the totals in totalTxRecv[n] , totalBlockRecv[n])
-                                logger(fmt.Sprintf("%22d%12d %-20s%12d%12d",i,j,(*channelIDs)[j],txRecv[i][j]-1,blockRecv[i][j]-1))
+                                outStr := fmt.Sprintf("%22d%12d %-20s%12d%12d",i,j,(*channelIDs)[j],txRecv[i][j]-1,blockRecv[i][j]-1)
+                                if (masterSpy != SPY_OFF && i==numOrdsToWatch-1) { outStr += fmt.Sprintf("  * MasterSpy on orderer %d", masterSpyOrdIndx) }
+                                logger(outStr)
                         } else if (i < 3 && j == 3) {
                                 logger(fmt.Sprintf("%34s","..."))
                         } else if (i == 3 && j == 0) {
@@ -761,7 +817,7 @@ func reportTotals(testname string, numTxToSendTotal int64, countToSend [][]int64
 // Function:    ote - the Orderer Test Engine
 // Outputs:     print report to stdout with lots of counters
 // Returns:     passed bool, resultSummary string
-func ote( testname string, txs int64, chans int, orderers int, ordType string, kbs int, masterSpy bool, pPerCh int ) (passed bool, resultSummary string) {
+func ote( testname string, txs int64, chans int, orderers int, ordType string, kbs int, oteSpy int, pPerCh int ) (passed bool, resultSummary string) {
 
         initialize() // multiple go tests could be run; we must call initialize() each time
 
@@ -769,7 +825,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         resultSummary = testname + " test not completed: INPUT ERROR: "
         defer closeLogger()
 
-        logger(fmt.Sprintf("========== OTE testname=%s TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d addMasterSpy=%t producersPerCh=%d", testname, txs, chans, orderers, ordType, kbs, masterSpy, pPerCh))
+        logger(fmt.Sprintf("========== OTE testname=%s TX=%d Channels=%d Orderers=%d ordererType=%s kafka-brokers=%d oteSpy=%d producersPerCh=%d", testname, txs, chans, orderers, ordType, kbs, oteSpy, pPerCh))
 
         // Establish the default configuration from yaml files - and this also
         // picks up any variables overridden on command line or in environment
@@ -798,12 +854,6 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 return passed, resultSummary + "Multiple producersPerChannel NOT SUPPORTED yet."
         }
 
-        numOrdsToWatch = numOrdsInNtwk    // Watch every orderer to verify they are all delivering the same.
-        if masterSpy { numOrdsToWatch++ } // We are not creating another orderer here, but we do need
-                                          // another set of counters; the masterSpy will be created for
-                                          // this test to watch every channel on an orderer - so that means
-                                          // one orderer is being watched twice
-
         // this is not an argument, but user may set this tuning parameter before running test
         envvar = os.Getenv("OTE_CLIENTS_SHARE_CONNS")
         if envvar != "" {
@@ -824,6 +874,65 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
                 numProducers = numOrdsInNtwk * numChannels
                 numConsumers = numOrdsInNtwk * numChannels
         }
+
+        envvar = "<ignored>"
+        if oteSpy < 0 {
+                // this ote() was called from the command line
+                if debugflagAPI { logger("Using environment variable settings for OTE_MASTERSPY and OTE_SPY_ORDERER...") }
+                envvar = strings.ToLower(os.Getenv("OTE_MASTERSPY"))
+                if envvar != "" {
+                        if strings.Contains(envvar, "on") {
+                                masterSpy = SPY_ON
+                        } else if strings.Contains(envvar, "defer") {
+                                masterSpy = SPY_DEFER
+                        } else {
+                                panic("Input error: invalid input for OTE_MASTERSPY: " + envvar)
+                        }
+                }
+
+        } else if oteSpy == SPY_OFF {
+                masterSpy = SPY_OFF
+        } else if oteSpy == SPY_ON {
+                masterSpy = SPY_ON
+        } else if oteSpy == SPY_DEFER {
+                masterSpy = SPY_DEFER
+        } else {
+                panic("Input error: invalid input for oteSpy (OTE_MASTERSPY)")
+        }
+        if debugflagAPI { logger(fmt.Sprintf("%-50s %s=%s", "OTE_MASTERSPY="+envvar, "masterSpy", spyStatus(masterSpy))) }
+
+        envvar = "<ignored>"
+        if oteSpy != SPY_OFF {
+                // Invoked from a go test or from command line.
+                // Env var indicates which orderer to spy on.
+                // Note: when using SPY_DEFER, this might be overridden by the go test
+                // that calls startMasterSpy() with a valid orderer index number.
+                envvar = os.Getenv("OTE_SPY_ORDERER")
+                if envvar != "" {
+                        if spyOrd, spyOrdErr := strconv.Atoi(envvar); spyOrdErr != nil {
+                                panic("Input error: cannot translate OTE_SPY_ORDERER to integer; bad input: " + envvar)
+                        } else {
+                                if spyOrd >= 0 && spyOrd < numOrdsInNtwk {
+                                        masterSpyOrdIndx = spyOrd
+                                } else {
+                                        panic("Input error: invalid OTE_SPY_ORDERER number; bad input: " + envvar)
+                                }
+                        }
+                }
+        }
+        if debugflagAPI { logger(fmt.Sprintf("%-50s %s=%d", "OTE_SPY_ORDERER="+envvar, "spyOrd", masterSpyOrdIndx)) }
+
+
+        // Watch every orderer to verify they are all delivering the same.
+        numOrdsToWatch = numOrdsInNtwk
+
+        if masterSpy != SPY_OFF {
+                // Create another set of counters (the masterSpy) for
+                // this test to watch every channel on an orderer - so that means
+                // every channel on one orderer will be watched by two processes
+                numOrdsToWatch++
+        }
+
 
         //////////////////////////////////////////////////////////////////////
         // Arguments to override configuration parameter values in yaml file:
@@ -975,15 +1084,23 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
 
         for ord := 0; ord < numOrdsToWatch; ord++ {
                 serverAddr := fmt.Sprintf("%s:%d", ordConf.General.ListenAddress, ordStartPort + uint16(ord))
-                if masterSpy && ord == numOrdsToWatch-1 {
+                if masterSpy != SPY_OFF && ord == numOrdsToWatch-1 {
                         // Special case: this is the last row of counters,
                         // added (and incremented numOrdsToWatch) for the
                         // masterSpy to use to watch the first orderer for
                         // deliveries, on all channels. This will be a duplicate
-                        // Consumer (it is the second one monitoring the first
-                        // orderer), so we need to reuse the first port.
-                        serverAddr = fmt.Sprintf("%s:%d", ordConf.General.ListenAddress, ordStartPort)
-                        go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
+                        // Consumer (it is the second one monitoring one of the
+                        // orderers, masterSpyOrdIndx, selected by the user).
+
+                        if masterSpy == SPY_ON {
+                                serverAddr = fmt.Sprintf("%s:%d", ordConf.General.ListenAddress, ordStartPort + uint16(masterSpyOrdIndx))
+                                go startConsumerMaster(serverAddr, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
+                        } else if masterSpy == SPY_DEFER {
+                                // startSpyDefer will start the MasterConsumer, but first
+                                // waits until the user is ready and requests it by calling
+                                // startMasterSpy with the index of the orderer to monitor.
+                                go startSpyDefer(ordConf.General.ListenAddress, ordStartPort, &channelIDs, ord, &(txRecv[ord]), &(blockRecv[ord]), &(consumerConns[ord][0]))
+                        }
                 } else
                 if optimizeClientsMode {
                         // Create just one Consumer to receive all deliveries
@@ -999,7 +1116,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
 
         }
 
-        logger("Finished creating all CONSUMERS clients")
+        logger("Finished creating all CONSUMERS clients. Take 5.")
         time.Sleep(5 * time.Second)
         defer cleanNetwork(&consumerConns)
 
@@ -1033,9 +1150,9 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         }
 
         if optimizeClientsMode {
-                logger(fmt.Sprintf("Finished creating all %d MASTER-PRODUCERs", numOrdsInNtwk))
+                logger(fmt.Sprintf("Finished creating all %d MASTER-PRODUCERs at %v", numOrdsInNtwk, time.Now()))
         } else {
-                logger(fmt.Sprintf("Finished creating all %d PRODUCERs", numOrdsInNtwk * numChannels))
+                logger(fmt.Sprintf("Finished creating all %d PRODUCERs at %v", numOrdsInNtwk * numChannels, time.Now()))
         }
         producersWG.Wait()
         logger(fmt.Sprintf("Send Duration (seconds): %4d", time.Now().Unix() - sendStart))
@@ -1061,7 +1178,7 @@ func ote( testname string, txs int64, chans int, orderers int, ordType string, k
         // waitSecs = some possibly idle time spent waiting for the last batch to be generated (waiting for batchTimeout)
         logger(fmt.Sprintf("Recovery Duration (secs):%4d", time.Now().Unix() - recoverStart))
         logger(fmt.Sprintf("waitSecs for last batch: %4d", waitSecs))
-        passed, resultSummary = reportTotals(testname, numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, masterSpy, &channelIDs)
+        passed, resultSummary = reportTotals(testname, numTxToSend, countToSend, txSent, totalNumTxSent, txSentFailures, totalNumTxSentFailures, batchSize, txRecv, totalTxRecv, totalTxRecvMismatch, blockRecv, totalBlockRecv, totalBlockRecvMismatch, &channelIDs)
 
         return passed, resultSummary
 }
@@ -1076,11 +1193,6 @@ func main() {
         orderers := numOrdsInNtwk
         ordType  := ordererType
         kbs      := numKBrokers
-
-
-        // Set addMasterSpy to true to create one additional consumer client
-        // that monitors all channels on one orderer with one grpc connection.
-        addMasterSpy := false
 
         pPerCh := producersPerCh
         // TODO lPerCh := listenersPerCh
@@ -1108,13 +1220,9 @@ func main() {
         if envvar != "" { kbs, _ = strconv.Atoi(envvar); testcmd += " OTE_KAFKABROKERS="+envvar }
         if debugflagAPI { logger(fmt.Sprintf("%-50s %s=%d", "OTE_KAFKABROKERS="+envvar, "kbs", kbs)) }
 
-        envvar = os.Getenv("OTE_MASTERSPY")
-        if "true" == strings.ToLower(envvar) || "t" == strings.ToLower(envvar) { addMasterSpy = true; testcmd += " OTE_MASTERSPY="+envvar }
-        if debugflagAPI { logger(fmt.Sprintf("%-50s %s=%t", "OTE_MASTERSPY="+envvar, "masterSpy", addMasterSpy)) }
-
         envvar = os.Getenv("OTE_PRODUCERS_PER_CHANNEL")
         if envvar != "" { pPerCh, _ = strconv.Atoi(envvar); testcmd += " OTE_PRODUCERS_PER_CHANNEL="+envvar }
         if debugflagAPI { logger(fmt.Sprintf("%-50s %s=%d", "OTE_PRODUCERS_PER_CHANNEL="+envvar, "producersPerCh", pPerCh)) }
 
-        _, _ = ote( "<commandline>"+testcmd+" ote", txs, chans, orderers, ordType, kbs, addMasterSpy, pPerCh)
+        _, _ = ote( "<commandline>"+testcmd+" ote", txs, chans, orderers, ordType, kbs, -1, pPerCh)
 }

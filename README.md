@@ -79,7 +79,8 @@ Check your Docker and Docker-Compose versions with the following commands:
   OTE_CHANNELS                                 1
   OTE_ORDERERS                                 1
   OTE_KAFKABROKERS                             0
-  OTE_MASTERSPY                                false
+  OTE_MASTERSPY                                SPY_OFF
+  OTE_SPY_ORDERER                              0
   OTE_PRODUCERS_PER_CHANNEL                    1
 ```
 
@@ -94,8 +95,6 @@ and hyperledger/fabric/peer/core.yaml.
   Others:
   CORE_LOGGING_LEVEL                           <unset>
   CORE_LEDGER_STATE_STATEDATABASE              leveldb
-  CORE_SECURITY_LEVEL                          256
-  CORE_SECURITY_HASHALGORITHM                  SHA2
 ```
 
 ## Execute OTE on shell command line
